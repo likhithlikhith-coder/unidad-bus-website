@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Unidad Bus Service</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f5f7fa;
+      color: #333;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a3c5e, #2d6a9f);
+      color: white;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    header .bus-icon { font-size: 52px; margin-bottom: 10px; }
+    header h1 { font-size: 2.4rem; font-weight: 700; letter-spacing: 1px; }
+    header p  { font-size: 1.05rem; opacity: 0.85; margin-top: 8px; }
+
+    /* ── Sections ── */
+    .container { max-width: 860px; margin: 0 auto; padding: 20px; }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      padding: 30px;
+      margin: 24px 0;
+    }
+    .card h2 {
+      font-size: 1.25rem;
+      color: #1a3c5e;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8f0fb;
+    }
+    .card p, .card li { font-size: 0.97rem; line-height: 1.8; color: #555; }
+    .card ul { padding-left: 20px; }
+
+    /* ── Route card ── */
+    .route-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      background: #eef4fb;
+      border-radius: 10px;
+      padding: 22px;
+      flex-wrap: wrap;
+    }
+    .route-box .stop {
+      background: #1a3c5e;
+      color: white;
+      padding: 12px 22px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-align: center;
+    }
+    .route-box .arrow { font-size: 1.6rem; color: #2d6a9f; }
+
+    /* ── Pricing ── */
+    .price-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .price-table th, .price-table td {
+      padding: 12px 16px;
+      border: 1px solid #e0e8f0;
+      text-align: left;
+      font-size: 0.95rem;
+    }
+    .price-table th { background: #1a3c5e; color: white; }
+    .price-table tr:nth-child(even) { background: #f0f5fb; }
+
+    /* ── How to book ── */
+    .steps { counter-reset: step; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin: 14px 0;
+    }
+    .step-num {
+      background: #2d6a9f;
+      color: white;
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+    .step-text { font-size: 0.96rem; color: #555; line-height: 1.6; padding-top: 4px; }
+
+    .telegram-btn {
+      display: inline-block;
+      margin-top: 18px;
+      background: #2d6a9f;
+      color: white;
+      padding: 13px 30px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: background 0.2s;
+    }
+    .telegram-btn:hover { background: #1a3c5e; }
+
+    /* ── Policy ── */
+    .policy-box {
+      background: #fff8e1;
+      border-left: 4px solid #f5a623;
+      border-radius: 6px;
+      padding: 16px 20px;
+      font-size: 0.95rem;
+      color: #555;
+      line-height: 1.7;
+    }
+
+    /* ── Footer ── */
+    footer {
+      background: #1a3c5e;
+      color: rgba(255,255,255,0.7);
+      text-align: center;
+      padding: 24px 16px;
+      font-size: 0.88rem;
+      margin-top: 40px;
+    }
+    footer strong { color: white; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="bus-icon">🚌</div>
+    <h1>Unidad Bus Service</h1>
+    <p>Reliable, Affordable Employee Transportation</p>
+  </header>
+
+  <div class="container">
+
+    <!-- About -->
+    <div class="card">
+      <h2>About Us</h2>
+      <p>
+        Unidad Bus Service provides safe, comfortable, and punctual bus transportation
+        for employees and commuters between <strong>Silk Institute</strong> and
+        <strong>IDZ Harohalli</strong>. We are committed to making daily commutes
+        stress-free and affordable.
+      </p>
+    </div>
+
+    <!-- Route -->
+    <div class="card">
+      <h2>Our Route</h2>
+      <div class="route-box">
+        <div class="stop">Silk Institute</div>
+        <div class="arrow">⇌</div>
+        <div class="stop">IDZ Harohalli</div>
+      </div>
+      <p style="margin-top:14px; text-align:center; color:#888; font-size:0.9rem;">
+        Daily service &nbsp;|&nbsp; Morning &amp; Afternoon buses
+      </p>
+    </div>
+
+    <!-- Pricing -->
+    <div class="card">
+      <h2>Pricing</h2>
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Ticket Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Silk Institute → IDZ Harohalli</td>
+            <td>₹1 per trip</td>
+          </tr>
+          <tr>
+            <td>IDZ Harohalli → Silk Institute</td>
+            <td>₹1 per trip</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px; font-size:0.88rem; color:#888;">
+        * Prices are subject to change. Confirmed at the time of booking.
+      </p>
+    </div>
+
+    <!-- How to Book -->
+    <div class="card">
+      <h2>How to Book</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">Open our Telegram bot and tap <strong>Start</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">Select your <strong>date of travel</strong> from the available options</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">Choose <strong>Morning</strong> or <strong>Afternoon</strong> bus</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-text">Enter your <strong>email</strong> and <strong>phone number</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-text">Scan the <strong>UPI QR code</strong> to complete payment and receive instant confirmation</div>
+        </div>
+      </div>
+      <br/>
+      <a class="telegram-btn" href="https://t.me/unidad_bus_bot" target="_blank">
+        🚌 &nbsp;Book on Telegram
+      </a>
+    </div>
+
+    <!-- Cancellation Policy -->
+    <div class="card">
+      <h2>Cancellation &amp; Refund Policy</h2>
+      <div class="policy-box">
+        <strong>No Refund Policy:</strong> All ticket sales are final. Once a booking is
+        confirmed and payment is made, no cancellations or refunds will be processed.
+        Please ensure your travel details are correct before completing payment.
+        <br/><br/>
+        In the event of a service cancellation by Unidad Bus Service, passengers will
+        be notified and a full refund will be issued within 5–7 business days.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <strong>Unidad Bus Service</strong><br/>
+    Silk Institute &nbsp;⇌&nbsp; IDZ Harohalli<br/><br/>
+    &copy; 2026 Unidad Bus Service. All rights reserved.
+  </footer>
+
+</body>
+</html>
