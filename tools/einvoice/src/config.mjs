@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ENVIRONMENTS } from './client.mjs';
+import { PORTALS } from './client.mjs';
 
 export const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -26,6 +26,9 @@ export function parseDotenv(text) {
 /**
  * Build client configuration from (highest precedence first):
  * CLI overrides → process.env → .env file (default: tools/einvoice/.env).
+ *
+ * EINV_PORTAL selects the Invoice Registration Portal (nic | iris),
+ * EINV_ENV selects sandbox | production within it.
  */
 export function loadConfig({ envFile, overrides = {}, env = process.env } = {}) {
   const file = envFile ? resolve(envFile) : resolve(TOOL_ROOT, '.env');
@@ -33,27 +36,43 @@ export function loadConfig({ envFile, overrides = {}, env = process.env } = {}) 
   const baseDir = dirname(file);
   const get = (key) => overrides[key] ?? env[key] ?? fromFile[key] ?? '';
 
+  const portalName = (get('EINV_PORTAL') || 'nic').toLowerCase();
+  const portal = PORTALS[portalName];
+  if (!portal) {
+    throw new Error(`EINV_PORTAL must be one of ${Object.keys(PORTALS).join(', ')} (got "${portalName}")`);
+  }
   const envName = (get('EINV_ENV') || 'sandbox').toLowerCase();
-  if (!ENVIRONMENTS[envName]) {
-    throw new Error(`EINV_ENV must be one of ${Object.keys(ENVIRONMENTS).join(', ')} (got "${envName}")`);
+  if (!portal[envName]) {
+    throw new Error(`EINV_ENV must be "sandbox" or "production" (got "${envName}")`);
   }
 
-  const publicKeyPath = get('EINV_PUBLIC_KEY') || `keys/${envName}.pem`;
-  const resolvedKeyPath = isAbsolute(publicKeyPath) ? publicKeyPath : resolve(baseDir, publicKeyPath);
+  const baseUrl = get('EINV_BASE_URL') || portal[envName].baseUrl || null;
+  const gstin = get('EINV_GSTIN').toUpperCase();
+
+  // Key lookup order: explicit setting, keys/<portal>-<env>.pem, then the legacy keys/<env>.pem for NIC.
+  const explicitKey = get('EINV_PUBLIC_KEY');
+  const keyCandidates = explicitKey
+    ? [explicitKey]
+    : [`keys/${portalName}-${envName}.pem`, ...(portalName === 'nic' ? [`keys/${envName}.pem`] : [])];
+  const abs = (p) => (isAbsolute(p) ? p : resolve(baseDir, p));
+  const publicKeyPath = abs(keyCandidates.find((p) => existsSync(abs(p))) ?? keyCandidates[0]);
 
   const config = {
+    portalName,
+    portalLabel: portal.name,
     envName,
     envFile: file,
-    baseUrl: get('EINV_BASE_URL') || ENVIRONMENTS[envName].baseUrl,
+    baseUrl,
+    baseUrlHint: portal[envName].hint ?? null,
     clientId: get('EINV_CLIENT_ID'),
     clientSecret: get('EINV_CLIENT_SECRET'),
-    gstin: get('EINV_GSTIN').toUpperCase(),
+    gstin,
     username: get('EINV_USERNAME'),
     password: get('EINV_PASSWORD'),
-    publicKeyPath: resolvedKeyPath,
+    publicKeyPath,
     publicKey: null,
     payloadEncoding: get('EINV_PAYLOAD_ENCODING') || 'base64',
-    tokenFile: get('EINV_TOKEN_FILE') || resolve(baseDir, `.token-${envName}-${get('EINV_GSTIN').toUpperCase() || 'nogstin'}.json`),
+    tokenFile: get('EINV_TOKEN_FILE') || resolve(baseDir, `.token-${portalName}-${envName}-${gstin || 'nogstin'}.json`),
   };
 
   if (!['base64', 'json'].includes(config.payloadEncoding)) {
@@ -62,7 +81,7 @@ export function loadConfig({ envFile, overrides = {}, env = process.env } = {}) 
   return config;
 }
 
-/** Validates presence of credentials and loads the public key PEM. Throws a readable error. */
+/** Validates presence of credentials and the base URL, and loads the public key PEM. */
 export function requireCredentials(config) {
   const missing = [];
   for (const [key, label] of [
@@ -79,9 +98,17 @@ export function requireCredentials(config) {
       `Missing credentials: ${missing.join(', ')}. Set them in ${config.envFile} (see .env.example) or as environment variables.`,
     );
   }
+  if (!config.baseUrl) {
+    throw new Error(
+      `${config.portalLabel} does not publish a fixed ${config.envName} API host. Copy it from your account (${config.baseUrlHint}) into EINV_BASE_URL.`,
+    );
+  }
+  if (!/^https?:\/\//.test(config.baseUrl)) {
+    throw new Error(`EINV_BASE_URL must start with https:// (got "${config.baseUrl}")`);
+  }
   if (!existsSync(config.publicKeyPath)) {
     throw new Error(
-      `Portal public key not found at ${config.publicKeyPath}. Download it from the e-invoice portal (API → public key) and set EINV_PUBLIC_KEY.`,
+      `Portal public key not found at ${config.publicKeyPath}. Download the ${config.envName} public key from ${config.portalLabel} and save it there, or set EINV_PUBLIC_KEY.`,
     );
   }
   const pem = readFileSync(config.publicKeyPath, 'utf8');

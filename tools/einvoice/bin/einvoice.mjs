@@ -26,6 +26,7 @@ Commands
   decode <jwt|file>         Decode a SignedInvoice / SignedQRCode token (no signature check)
 
 Options
+  --portal <nic|iris>         Invoice Registration Portal (default: EINV_PORTAL or nic)
   --env <sandbox|production>  Portal environment (default: EINV_ENV or sandbox)
   --config <path>             .env file to read (default: tools/einvoice/.env)
   --set <Path=value>          Override a field in the invoice before sending, e.g.
@@ -60,6 +61,7 @@ async function main() {
   const { values: opts, positionals } = parseArgs({
     allowPositionals: true,
     options: {
+      portal: { type: 'string' },
       env: { type: 'string' },
       config: { type: 'string' },
       set: { type: 'string', multiple: true, default: [] },
@@ -82,6 +84,7 @@ async function main() {
 
   const log = opts.verbose ? (...a) => console.error('[einvoice]', ...a) : () => {};
   const overrides = {};
+  if (opts.portal) overrides.EINV_PORTAL = opts.portal;
   if (opts.env) overrides.EINV_ENV = opts.env;
   const config = loadConfig({ envFile: opts.config, overrides });
 
@@ -109,7 +112,7 @@ async function main() {
 
 function makeClient(config, log) {
   const full = requireCredentials(config);
-  log(`environment: ${full.envName} (${full.baseUrl}), gstin: ${full.gstin}`);
+  log(`portal: ${full.portalLabel}, environment: ${full.envName} (${full.baseUrl}), gstin: ${full.gstin}`);
   return new EInvoiceClient({
     ...full,
     tokenStore: new FileTokenStore(full.tokenFile),
@@ -173,7 +176,7 @@ async function cmdDecode(input, opts) {
 async function cmdAuth(client, config, opts) {
   const session = await client.authenticate({ force: opts.force });
   if (opts.json) return console.log(JSON.stringify({ ...session, sek: '<redacted>' }, null, 2));
-  console.log(`✓ Authenticated with ${config.envName} portal as ${session.username} (${session.gstin})`);
+  console.log(`✓ Authenticated with ${config.portalLabel} ${config.envName} as ${session.username} (${session.gstin})`);
   console.log(`  Token expires: ${session.tokenExpiry} IST`);
   console.log(`  Cached in:     ${config.tokenFile}`);
 }
@@ -197,7 +200,7 @@ async function cmdGenerate(client, config, path, opts) {
     }
   }
 
-  console.log(`→ Submitting ${invoice.DocDtls?.No} dated ${invoice.DocDtls?.Dt} to ${config.envName} portal…`);
+  console.log(`→ Submitting ${invoice.DocDtls?.No} dated ${invoice.DocDtls?.Dt} to ${config.portalLabel} ${config.envName}…`);
   const data = await client.generateIrn(invoice);
 
   const outDir = resolve(opts.out ?? resolve(TOOL_ROOT, 'output'));

@@ -8,10 +8,30 @@ import {
   rsaEncryptBase64,
 } from './crypto.mjs';
 
-export const ENVIRONMENTS = {
-  sandbox: { baseUrl: 'https://einv-apisandbox.nic.in' },
-  production: { baseUrl: 'https://einvoice1.gst.gov.in' },
+/**
+ * Invoice Registration Portals that expose the national e-invoice API.
+ * All of them share the paths, headers and encryption below; they differ
+ * in host name and public key. A null baseUrl means the portal publishes
+ * its API host only inside the taxpayer's account, so it must be supplied
+ * via EINV_BASE_URL.
+ */
+export const PORTALS = {
+  nic: {
+    name: 'NIC IRP (einvoice1)',
+    sandbox: { baseUrl: 'https://einv-apisandbox.nic.in' },
+    production: { baseUrl: 'https://einvoice1.gst.gov.in' },
+    notes: 'Direct API access only for taxpayers above the NIC turnover threshold; others go through a GSP/ERP.',
+  },
+  iris: {
+    name: 'IRIS IRP (einvoice6)',
+    sandbox: { baseUrl: null, hint: 'IRIS portal → Sandbox → Sandbox Settings → Sandbox End Point' },
+    production: { baseUrl: null, hint: 'IRIS portal → Production → API credentials / endpoints' },
+    notes: 'Self-service direct API access for taxpayers; register at https://einvoice6.gst.gov.in',
+  },
 };
+
+/** @deprecated kept for backwards compatibility; prefer PORTALS.nic */
+export const ENVIRONMENTS = PORTALS.nic;
 
 export const PATHS = {
   auth: '/eivital/v1.04/auth',
@@ -61,7 +81,7 @@ export class MemoryTokenStore {
 export class EInvoiceClient {
   /**
    * @param {object} opts
-   * @param {string} opts.baseUrl        Portal base URL (see ENVIRONMENTS)
+   * @param {string} opts.baseUrl        Portal base URL (see PORTALS)
    * @param {string} opts.clientId
    * @param {string} opts.clientSecret
    * @param {string} opts.gstin          GSTIN the credentials belong to (seller)

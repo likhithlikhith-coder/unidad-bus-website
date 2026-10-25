@@ -15,29 +15,50 @@ It implements the NIC API specification (auth `eivital/v1.04`, invoice
 AES-256-ECB with the session encryption key for every payload). Requires
 Node.js 18.17 or newer. No `npm install` needed.
 
-## 1. Get portal credentials
+## 1. Choose a portal and get credentials
 
-**Sandbox (start here).** Register at <https://einv-apisandbox.nic.in> with your
-GSTIN. In the sandbox portal:
+Several government-authorised Invoice Registration Portals (IRPs) expose the same
+national e-invoice API. The tool supports two, selected with `EINV_PORTAL`:
 
-1. Note the **Client ID** and **Client Secret** issued to you.
-2. Create **API user credentials** (user name + password) for your GSTIN.
-3. Download the sandbox **public key** (PEM) from the API documentation / public key
-   section and save it as `keys/sandbox.pem`.
+| Portal | `EINV_PORTAL` | Who can use the API directly | Hosts |
+| --- | --- | --- | --- |
+| IRIS IRP (einvoice6) | `iris` | Any e-invoice-enabled taxpayer, self-service | Shown inside your IRIS account |
+| NIC IRP (einvoice1) | `nic` | Taxpayers above NIC's turnover threshold (₹100 crore at the time of writing); others only through a GSP/ERP | Fixed, built in |
 
-**Production.** Direct API access on <https://einvoice1.gst.gov.in> is available
-to taxpayers above the turnover threshold notified by NIC (with whitelisted IPs) and
-to GSPs. Smaller taxpayers get API access through a GSP/ASP. Most GSPs mirror the NIC
-paths on their own host; set `EINV_BASE_URL` to that host and `EINV_ENV=production`.
-Save the production public key as `keys/production.pem`.
+### IRIS IRP (recommended for smaller taxpayers)
+
+1. Go to <https://einvoice6.gst.gov.in>, register the **taxpayer's GSTIN** with the
+   authorised signatory's details as recorded on the GST portal. A one-time password is
+   sent to that signatory. The GSTIN must already be enabled for e-invoicing.
+2. Complete the **Sandbox access** application. When granted, open
+   **Sandbox → Sandbox Credentials** and copy the **Client ID** and **Client Secret**
+   (not the Portal ID, which is for IRIS's own portal/VAS APIs).
+3. Create an **API user** (user name + password) for the GSTIN and authorise it under
+   **Manage API access**.
+4. Open **Sandbox → Sandbox Settings → Sandbox End Point** and copy the API host into
+   `EINV_BASE_URL`.
+5. Download the **sandbox public key for Core APIs** from IRIS's *Public keys* page and
+   save it as `keys/iris-sandbox.pem`.
+6. For production, IRIS asks you to submit sandbox test cases first; then repeat steps 2
+   to 5 with the production credentials, host and key (`keys/iris-production.pem`,
+   `EINV_ENV=production`).
+
+### NIC IRP
+
+Register at <https://einv-apisandbox.nic.in> as **Tax Payer** with the GSTIN. NIC only
+allows this for taxpayers above its turnover threshold; below it the portal asks for a
+GSP or ERP Client ID. Download the sandbox public key to `keys/nic-sandbox.pem`. For
+production (<https://einvoice1.gst.gov.in>) use `keys/nic-production.pem`. If you go
+through a GSP that mirrors the NIC paths on its own host, set `EINV_BASE_URL`.
 
 ## 2. Configure
 
 ```bash
 cd tools/einvoice
 cp .env.example .env
-# edit .env: EINV_CLIENT_ID, EINV_CLIENT_SECRET, EINV_GSTIN, EINV_USERNAME, EINV_PASSWORD
-# put the portal public key at keys/sandbox.pem (or set EINV_PUBLIC_KEY)
+# edit .env: EINV_PORTAL, EINV_BASE_URL (iris), EINV_CLIENT_ID, EINV_CLIENT_SECRET,
+#            EINV_GSTIN, EINV_USERNAME, EINV_PASSWORD
+# put the portal public key at keys/<portal>-<env>.pem, e.g. keys/iris-sandbox.pem
 ```
 
 Every setting can also be passed as an environment variable; variables override
@@ -66,7 +87,7 @@ node bin/einvoice.mjs decode output/<saved file>.json
 ```
 
 Add `--json` to any command for raw JSON output and `--verbose` to see the HTTP calls.
-`--env production` switches environment for one command.
+`--portal nic` or `--env production` switch portal or environment for one command.
 
 ### Invoice payload
 
@@ -92,14 +113,14 @@ signed tokens; it does not verify the portal's signature.
 ## Using it as a library
 
 ```js
-import { EInvoiceClient, ENVIRONMENTS } from './src/client.mjs';
+import { EInvoiceClient, PORTALS } from './src/client.mjs';
 import { FileTokenStore } from './src/token-store.mjs';
 import { readFileSync } from 'node:fs';
 
 const client = new EInvoiceClient({
-  baseUrl: ENVIRONMENTS.sandbox.baseUrl,
+  baseUrl: 'https://<host from your IRIS sandbox settings>', // or PORTALS.nic.sandbox.baseUrl
   clientId, clientSecret, gstin, username, password,
-  publicKey: readFileSync('keys/sandbox.pem', 'utf8'),
+  publicKey: readFileSync('keys/iris-sandbox.pem', 'utf8'),
   tokenStore: new FileTokenStore('.token.json'),
 });
 
@@ -132,10 +153,13 @@ handling and token refresh are exercised without network access.
 
 ## Notes
 
-- The portal public keys and the API specification live on the NIC portals above;
-  if NIC changes a version path, edit `PATHS` in `src/client.mjs`.
+- All IRPs implement the same national API, so the paths in `PATHS` and the encryption
+  in `src/crypto.mjs` are shared; portal hosts and notes live in `PORTALS` in
+  `src/client.mjs`. Public keys expire periodically, so re-download them when the portal
+  starts rejecting authentication.
 - NIC may block credentials that produce many erroneous calls. Use `validate` first,
   and the sandbox before production.
 - E-invoicing applies to B2B supplies by taxpayers above the notified turnover
-  threshold; passenger transport ticketing to individuals (B2C) is outside its scope.
-  Confirm applicability with your tax adviser before going live.
+  threshold (₹5 crore at the time of writing); passenger transport ticketing to
+  individuals (B2C) is outside its scope. IRPs only issue IRNs for GSTINs that are
+  enabled for e-invoicing, so confirm applicability before going live.
