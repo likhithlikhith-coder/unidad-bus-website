@@ -1,0 +1,11 @@
+# credentials and secrets
+.env
+keys/*.pem
+keys/*.cer
+.token-*.json
+
+# portal responses (contain signed invoices)
+output/*
+!output/.gitkeep
+
+node_modules/

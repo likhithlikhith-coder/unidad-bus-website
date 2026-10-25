@@ -1,0 +1,18 @@
+{
+  "name": "unidad-einvoice",
+  "version": "0.1.0",
+  "description": "Zero-dependency CLI and library for generating GST e-invoices (IRN) through the NIC Invoice Registration Portal API",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "einvoice": "./bin/einvoice.mjs"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "einvoice": "node bin/einvoice.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "license": "MIT"
+}

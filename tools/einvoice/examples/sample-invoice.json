@@ -1,0 +1,78 @@
+{
+  "Version": "1.1",
+  "TranDtls": {
+    "TaxSch": "GST",
+    "SupTyp": "B2B",
+    "RegRev": "N",
+    "IgstOnIntra": "N"
+  },
+  "DocDtls": {
+    "Typ": "INV",
+    "No": "UBS/26-27/0001",
+    "Dt": "25/10/2026"
+  },
+  "SellerDtls": {
+    "Gstin": "29AAAAA0000A1Z5",
+    "LglNm": "Unidad Bus Service",
+    "TrdNm": "Unidad Bus Service",
+    "Addr1": "Silk Institute Metro Station Road",
+    "Addr2": "Kanakapura Road",
+    "Loc": "Bengaluru",
+    "Pin": 560062,
+    "Stcd": "29",
+    "Ph": "9999999999",
+    "Em": "billing@example.com"
+  },
+  "BuyerDtls": {
+    "Gstin": "29BBBBB0000B1Z5",
+    "LglNm": "Example Industries Pvt Ltd",
+    "TrdNm": "Example Industries",
+    "Pos": "29",
+    "Addr1": "Plot 12, IDZ Industrial Area",
+    "Addr2": "Harohalli",
+    "Loc": "Ramanagara",
+    "Pin": 562112,
+    "Stcd": "29",
+    "Ph": "8888888888",
+    "Em": "accounts@example.com"
+  },
+  "ItemList": [
+    {
+      "SlNo": "1",
+      "PrdDesc": "Employee bus transport - Silk Institute to IDZ Harohalli - October 2026",
+      "IsServc": "Y",
+      "HsnCd": "996412",
+      "Qty": 1000,
+      "Unit": "OTH",
+      "UnitPrice": 1,
+      "TotAmt": 1000,
+      "Discount": 0,
+      "PreTaxVal": 1000,
+      "AssAmt": 1000,
+      "GstRt": 5,
+      "IgstAmt": 0,
+      "CgstAmt": 25,
+      "SgstAmt": 25,
+      "CesRt": 0,
+      "CesAmt": 0,
+      "CesNonAdvlAmt": 0,
+      "StateCesRt": 0,
+      "StateCesAmt": 0,
+      "StateCesNonAdvlAmt": 0,
+      "OthChrg": 0,
+      "TotItemVal": 1050
+    }
+  ],
+  "ValDtls": {
+    "AssVal": 1000,
+    "CgstVal": 25,
+    "SgstVal": 25,
+    "IgstVal": 0,
+    "CesVal": 0,
+    "StCesVal": 0,
+    "Discount": 0,
+    "OthChrg": 0,
+    "RndOffAmt": 0,
+    "TotInvVal": 1050
+  }
+}
