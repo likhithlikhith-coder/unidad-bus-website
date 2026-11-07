@@ -137,7 +137,7 @@
       '<div class="card"><h2>Option A · Open the Tally data folder (no export)</h2><ol class="steps">' +
       '<li>On the PC, open TallyPrime\'s data directory (shown under F1 → Settings → Data path; usually <b>C:\\Users\\Public\\TallyPrime\\data</b>). Each company is a numbered folder such as <b>100000</b>.</li>' +
       '<li>Copy that company folder to the phone, or ZIP it and send it over WhatsApp or Drive. Only Manager.1800, TranMgr.1800 and Company.1800 are read.</li>' +
-      '<li>In the app tap <b>Open Tally data folder</b> (or pick the three files, or the ZIP). The company name is read from the data.</li></ol>' +
+      '<li>In the app tap <b>Open Tally data folder</b> and pick either one company folder or the whole Data folder: every company inside is loaded. Or pick the three files, or a ZIP. Company names are read from the data.</li></ol>' +
       '<p class="small muted">Works with TallyPrime Release 3 and later (.1800 data files). Deleted vouchers are skipped; stock movements are read where present. Copying the folder is safe: the app never writes to it.</p></div>' +
       '<div class="card"><h2>Option B · Sync over Wi-Fi (Android app)</h2><ol class="steps">' +
       '<li>In TallyPrime press <kbd>F1</kbd> (Help) → <b>Settings</b> → <b>Connectivity</b> → <b>Client/Server configuration</b>. Set <b>TallyPrime acts as</b> to <b>Both</b> (or Server), <b>Enable ODBC server</b> Yes, port <b>9000</b>. Restart Tally if asked.</li>' +
@@ -171,7 +171,8 @@
       S.companies.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('');
     var h = '<div class="card"><h2>Tally company data folder</h2>' +
       (hasBridge() && typeof window.TallyBridge.pickFolder === 'function' ? '<button class="btn primary block" id="imp-folder">📁 Open Tally data folder</button><p class="small muted" style="margin-top:8px">Pick the company folder (e.g. <b>100000</b>) from Tally\'s Data directory copied to this phone.</p>' : '') +
-      '<label class="file-drop" style="margin-top:10px"><input type="file" id="imp-tally" multiple><div style="font-size:30px">🗂️</div><div><b>Choose Manager.1800, TranMgr.1800, Company.1800</b></div><div class="small">or a ZIP of the whole company folder</div></label>' +
+      '<label class="file-drop" style="margin-top:10px"><input type="file" id="imp-tally" multiple><div style="font-size:30px">🗂️</div><div><b>Choose Manager.1800, TranMgr.1800, Company.1800</b></div><div class="small">or a ZIP of one or more company folders</div></label>' +
+      (hasBridge() ? '' : '<label class="file-drop"><input type="file" id="imp-tallydir" webkitdirectory multiple><div><b>Choose a folder</b></div><div class="small">a company folder, or the whole Tally Data folder</div></label>') +
       '<p class="small muted">Reads TallyPrime\'s own data files directly. No export needed.</p></div>' +
       '<div class="card"><h2>Tally XML export</h2><div class="field"><label>Import into</label><select id="imp-target">' + opts + '</select></div>' +
       '<div class="field hidden" id="imp-newname-wrap"><label>New company name</label><input id="imp-newname" placeholder="Company name"></div>' +
@@ -185,6 +186,7 @@
     document.getElementById('imp-target').onchange = function () { document.getElementById('imp-newname-wrap').classList.toggle('hidden', this.value !== 'new'); };
     document.getElementById('imp-files').onchange = function () { queueFiles(this.files); };
     document.getElementById('imp-tally').onchange = function () { queueTallyFiles(this.files); };
+    var dirInput = document.getElementById('imp-tallydir'); if (dirInput) dirInput.onchange = function () { queueTallyFiles(this.files); };
     var fb = document.getElementById('imp-folder'); if (fb) fb.onclick = pickTallyFolder;
     document.getElementById('imp-save').onclick = saveJobs;
   };
@@ -223,6 +225,7 @@
   var TALLY_FILES = ['manager.1800', 'tranmgr.1800', 'company.1800'];
   function isTallyFile(name) { return /\.1800$/i.test(name) || /\.900$/i.test(name); }
   // Minimal ZIP reader (stored + deflate via DecompressionStream) for a zipped company folder.
+  // Returns { folderKey: { fileName: ArrayBuffer } } grouped by the directory inside the ZIP.
   function unzipTallyFiles(buf) {
     var u8 = new Uint8Array(buf), dv = new DataView(buf), out = {}, jobs = [];
     var eocd = -1;
@@ -231,18 +234,19 @@
     var count = dv.getUint16(eocd + 10, true), cd = dv.getUint32(eocd + 16, true), o = cd;
     for (var n = 0; n < count && o + 46 <= u8.length; n++) {
       if (dv.getUint32(o, true) !== 0x02014b50) break;
-      var method = dv.getUint16(o + 10, true), csize = dv.getUint32(o + 20, true), usize = dv.getUint32(o + 24, true);
+      var method = dv.getUint16(o + 10, true), csize = dv.getUint32(o + 20, true);
       var nlen = dv.getUint16(o + 28, true), elen = dv.getUint16(o + 30, true), clen = dv.getUint16(o + 32, true), lho = dv.getUint32(o + 42, true);
       var name = new TextDecoder().decode(u8.subarray(o + 46, o + 46 + nlen)); o += 46 + nlen + elen + clen;
-      var base = name.split('/').pop();
+      var parts = name.split('/'), base = parts.pop(), dir = parts.join('/');
       if (TALLY_FILES.indexOf(base.toLowerCase()) === -1) continue;
       var lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true), start = lho + 30 + lnlen + lelen;
       var data = u8.subarray(start, start + csize);
-      if (method === 0) out[base] = data.slice().buffer;
+      var folder = out[dir] || (out[dir] = {});
+      if (method === 0) folder[base] = data.slice().buffer;
       else if (method === 8 && typeof DecompressionStream !== 'undefined') {
-        jobs.push((function (base, data, usize) {
-          return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(function (ab) { out[base] = ab; });
-        })(base, data, usize));
+        jobs.push((function (folder, base, data) {
+          return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(function (ab) { folder[base] = ab; });
+        })(folder, base, data));
       } else return Promise.reject(new Error('ZIP entry ' + base + ' uses an unsupported compression'));
     }
     return Promise.all(jobs).then(function () { return out; });
@@ -293,19 +297,32 @@
     });
     nextJob();
   }
-  // Tally data files chosen from the picker: group .1800 files into one job, unzip ZIPs, pass XML through.
+  // Tally data files chosen from the picker: group .1800 files by folder, unzip ZIPs, pass XML through.
   function queueTallyFiles(files) {
-    var tally = [], xml = [], zips = [];
+    var groups = {}, xml = [], zips = [];
     Array.prototype.forEach.call(files, function (f) {
-      if (/\.zip$/i.test(f.name)) zips.push(f); else if (isTallyFile(f.name)) tally.push(f); else xml.push(f);
+      if (/\.zip$/i.test(f.name)) zips.push(f);
+      else if (isTallyFile(f.name)) { var dir = (f.webkitRelativePath || '').split('/').slice(0, -1).join('/'); (groups[dir] || (groups[dir] = [])).push(f); }
+      else xml.push(f);
     });
     if (xml.length) queueFiles(xml);
-    if (tally.length) addFolderJob(tally.map(function (f) { return f.name; }).join(', '), function () {
-      var folder = {};
-      return Promise.all(tally.map(function (f) { return f.arrayBuffer().then(function (b) { folder[f.name] = b; }); })).then(function () { return folder; });
-    }, tally.reduce(function (a, f) { return a + f.size; }, 0));
-    zips.forEach(function (z) { addFolderJob(z.name, function () { return z.arrayBuffer().then(unzipTallyFiles); }, z.size); });
-    if (!xml.length && !tally.length && !zips.length) toast('Pick Manager.1800, TranMgr.1800 and Company.1800, or a ZIP of the folder');
+    Object.keys(groups).forEach(function (dir) {
+      var list = groups[dir];
+      addFolderJob((dir ? dir.split('/').pop() + ': ' : '') + list.map(function (f) { return f.name; }).join(', '), function () {
+        var folder = {};
+        return Promise.all(list.map(function (f) { return f.arrayBuffer().then(function (b) { folder[f.name] = b; }); })).then(function () { return folder; });
+      }, list.reduce(function (a, f) { return a + f.size; }, 0));
+    });
+    zips.forEach(function (z) {
+      addFolderJob(z.name, function () { return z.arrayBuffer().then(unzipTallyFiles).then(function (byDir) {
+        var dirs = Object.keys(byDir);
+        if (!dirs.length) throw new Error('No Tally data files (Manager.1800, TranMgr.1800) inside the ZIP');
+        // first folder runs in this job; any other company folders become their own jobs
+        dirs.slice(1).forEach(function (dir) { addFolderJob(z.name + ' › ' + (dir.split('/').pop() || 'root'), function () { return Promise.resolve(byDir[dir]); }, 0); });
+        return byDir[dirs[0]];
+      }); }, z.size);
+    });
+    if (!xml.length && !Object.keys(groups).length && !zips.length) toast('Pick Manager.1800, TranMgr.1800 and Company.1800, or a ZIP of the folder');
   }
   function addFolderJob(label, getFolder, size) {
     var box = document.getElementById('imp-jobs');
@@ -317,12 +334,17 @@
   function pickTallyFolder() {
     var id = 'd' + Date.now().toString(36);
     bridgePending[id] = { resolve: function (names) {
-      if (!names || !names.length) { toast('No Tally data files found in that folder'); return; }
-      addFolderJob('Tally folder (' + names.length + ' files)', function () {
-        var folder = {};
-        return Promise.all(names.map(function (n) { return fetch('/cache/' + id + '-' + n, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('Could not read ' + n); return r.arrayBuffer(); }).then(function (b) { folder[n] = b; }); }))
-          .then(function () { try { window.TallyBridge.discard(id); } catch (e) { /* ignore */ } return folder; });
-      }, 0);
+      if (!names || !names.length) { toast('No Tally data files found in that folder. Pick the company folder (e.g. 100000) or the Data folder that holds them.', 5000); return; }
+      var groups = {};
+      names.forEach(function (n) { var parts = n.split('/'); var base = parts.pop(), sub = parts.join('/'); (groups[sub] || (groups[sub] = [])).push({ name: base, cache: id + '-' + (sub ? sub.replace(/\//g, '_') + '-' : '') + base }); });
+      var keys = Object.keys(groups);
+      keys.forEach(function (sub, i) {
+        addFolderJob(sub ? 'Tally folder ' + sub : 'Tally folder (' + groups[sub].length + ' files)', function () {
+          var folder = {};
+          return Promise.all(groups[sub].map(function (f) { return fetch('/cache/' + f.cache, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('Could not read ' + f.name); return r.arrayBuffer(); }).then(function (b) { folder[f.name] = b; }); }))
+            .then(function () { if (i === keys.length - 1) { try { window.TallyBridge.discard(id); } catch (e) { /* ignore */ } } return folder; });
+        }, 0);
+      });
     }, reject: function (e) { toast(e.message, 4000); } };
     window.TallyBridge.pickFolder(id);
   }

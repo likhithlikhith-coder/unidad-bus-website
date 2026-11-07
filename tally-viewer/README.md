@@ -23,7 +23,9 @@ under its data path (F1 → Settings → Data path; usually
 `C:\Users\Public\TallyPrime\data`). Copy that folder to the phone, or ZIP it
 and send it, then in the app choose **Open Tally data folder** (Android app) or
 pick `Manager.1800`, `TranMgr.1800` and `Company.1800` (or the ZIP) in the
-file picker. Nothing is written back to the folder.
+file picker. Picking the whole Tally Data folder, or a ZIP containing several
+numbered company folders, loads every company at once. Nothing is written
+back to the folder.
 
 ### Option B: sync over Wi-Fi (Android app)
 
@@ -120,9 +122,18 @@ is known so far:
   posting record has no lines is deleted or empty and is skipped.
 - `Company.1800` holds the company name, address, PAN and books-from date.
 
+- Voucher identity: Tally's GUID is the company GUID plus eight hex digits of
+  the object's counter (tag 3004), so a folder import and an XML export of the
+  same company match up and update rather than duplicate.
+- Header flags: tag 1503 marks a cancelled voucher and the pair 2003+2005
+  (without 1532) an optional one; both carry their lines only in the editable
+  chain and post nothing, which is exactly how Tally treats them.
+- A ledger line's nested record 510 is the bank allocation (instrument,
+  transaction type such as NEFT, reference, date).
+
 Not yet seen in sample data and therefore unverified: inventory lines on
-sales/purchase vouchers, cost centres, bill-wise references, cancelled and
-optional flags, and TallyVault-encrypted companies (those cannot be read).
+sales/purchase vouchers, cost centres, bill-wise references, and
+TallyVault-encrypted companies (those cannot be read).
 
 ## How figures are computed
 

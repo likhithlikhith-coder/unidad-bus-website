@@ -66,7 +66,9 @@
         case 0x16: if (o + 8 > end) { st.ok = false; } else { e.val = [dayToDate(dv.getUint32(o, true)), dv.getUint32(o + 4, true)]; } o += 8; break;
         case 0x0b: if (o + 12 > end) { st.ok = false; } else { e.val = [i64(dv, o), dv.getUint32(o + 8, true)]; } o += 12; break;
         case 0x0c: if (o + 20 > end) { st.ok = false; } else { e.val = [i64(dv, o), i64(dv, o + 8), dv.getUint32(o + 16, true)]; } o += 20; break;
-        case 0x0f: case 0x83: case 0x85: case 0x8f: {
+        case 0x21: break;                       // seen only as a trailing empty entry
+        case 0x0e: if (o + 8 > end) { st.ok = false; } else { e.val = i64(dv, o); } o += 8; break;
+        case 0x0f: case 0x2f: case 0x83: case 0x85: case 0x8f: {
           if (o + 2 > end) { st.ok = false; o = end; break; }
           var ln = u8[o] | (u8[o + 1] << 8); o += 2;
           if (o + ln > end) { st.ok = false; o = end; break; }
@@ -283,6 +285,12 @@
         if (vers2) { var mx = 0; Object.keys(vers2).forEach(function (kv) { if (+kv > mx) mx = +kv; }); if (mx && vers2[mx] <= Tf.n) cur = Tf.parseChain(vers2[mx]).entries; }
 
         var v = { id: 'tally:' + oid, date: 0, type: '', number: '', ref: '', narration: '', party: '', cancelled: false, optional: false, postDated: false, action: 'Create', entries: [], items: [], tallyId: oid };
+        // Tally's own GUID = company GUID + '-' + 8 hex digits of the object's counter, so XML and folder imports match up.
+        var gc = find(hdr, 3004, 0x06) || find(cur, 3004, 0x06), gs = str(hdr, 3004) || str(cur, 3004) || (out.companyInfo && out.companyInfo.guid) || '';
+        if (gc && gs) v.id = gs + '-' + ('00000000' + gc.val.toString(16)).slice(-8);
+        var hf = {}; hdr.forEach(function (e) { if (e.typ === 0x01) hf[e.tag] = true; });
+        if (hf[1503]) v.cancelled = true;
+        else if (hf[2003] && hf[2005] && !hf[1532]) v.optional = true;
         var d7 = find(hdr, 3, 0x07) || find(cur, 3, 0x07);
         if (d7) v.date = dayToDate(d7.val[1]);
         if (!v.date) { var dd = find(hdr, 103, 0x0d) || find(cur, 103, 0x0d); if (dd) v.date = dd.val; }
@@ -297,6 +305,8 @@
 
         // ledger entries: posting record (ids) preferred, else editable chain (names)
         var ents = ledgerEntries(post, ledById, ids);
+        // Cancelled and optional vouchers post nothing, so their lines live only in the editable chain.
+        if (!ents.length && (v.cancelled || v.optional) && cur) ents = ledgerEntries(cur, ledById, ids);
         v.entries = ents;
         if (cur) v.items = inventoryEntries(cur, ids, unitById);
         if (!v.entries.length) { empty++; continue; }
@@ -334,8 +344,8 @@
           var name = (lid && ledById[lid.val]) || (nm && nm.val) || (lid && ids[lid.val] && ids[lid.val].name) || (lid ? 'Ledger #' + lid.val : '');
           if (!name) return;
           var entry = { ledger: name, amount: amt.val / SCALE };
-          var bills = findAll(y.kids, 510, 0x10);
-          if (bills.length) entry.bills = bills.map(function (b) { var ba = find(b.kids, 2, 0x09); return { name: str(b.kids, 3) || str(b.kids, 2), type: '', amount: ba ? ba.val / SCALE : 0 }; });
+          var bank = find(y.kids, 510, 0x10);
+          if (bank) { var bd = find(bank.kids, 2, 0x0d); entry.bank = { favouring: str(bank.kids, 2), mode: str(bank.kids, 33), instrument: str(bank.kids, 4), ref: str(bank.kids, 10), date: bd ? bd.val : 0 }; }
           out.push(entry);
         });
       });

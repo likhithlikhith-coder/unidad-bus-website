@@ -233,32 +233,32 @@ public class MainActivity extends Activity {
         });
     }
 
+    private static boolean isTallyFile(String name) {
+        String l = name.toLowerCase();
+        return l.equals("manager.1800") || l.equals("tranmgr.1800") || l.equals("company.1800");
+    }
+
+    /** Copies the Tally files found directly in the folder, or in its immediate sub-folders (a whole Data directory). */
     private void copyTallyFolder(final String id, final Uri tree) {
         new Thread(new Runnable() {
             @Override
             public void run() {
                 StringBuilder names = new StringBuilder();
                 try {
-                    Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-                    Cursor c = getContentResolver().query(children, new String[]{ DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null);
-                    if (c != null) {
-                        while (c.moveToNext()) {
-                            String docId = c.getString(0), name = c.getString(1);
-                            if (name == null) continue;
-                            String lower = name.toLowerCase();
-                            if (!(lower.equals("manager.1800") || lower.equals("tranmgr.1800") || lower.equals("company.1800"))) continue;
-                            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
-                            InputStream in = getContentResolver().openInputStream(doc);
-                            if (in == null) continue;
-                            File out = new File(tallyCache, id + "-" + name);
-                            FileOutputStream fo = new FileOutputStream(out);
-                            byte[] buf = new byte[65536]; int n;
-                            while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
-                            fo.close(); in.close();
-                            if (names.length() > 0) names.append('|');
-                            names.append(name);
+                    String rootId = DocumentsContract.getTreeDocumentId(tree);
+                    int direct = copyDir(id, tree, rootId, "", names);
+                    if (direct == 0) {
+                        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, rootId);
+                        Cursor c = getContentResolver().query(children, new String[]{ DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE }, null, null, null);
+                        if (c != null) {
+                            while (c.moveToNext()) {
+                                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) continue;
+                                String sub = c.getString(1);
+                                if (sub == null || !sub.matches("[A-Za-z0-9_. -]{1,40}")) continue;
+                                copyDir(id, tree, c.getString(0), sub, names);
+                            }
+                            c.close();
                         }
-                        c.close();
                     }
                     folderDone(id, true, names.toString());
                 } catch (Exception e) {
@@ -266,6 +266,31 @@ public class MainActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    private int copyDir(String id, Uri tree, String docId, String sub, StringBuilder names) throws Exception {
+        int copied = 0;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+        Cursor c = getContentResolver().query(children, new String[]{ DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null);
+        if (c == null) return 0;
+        while (c.moveToNext()) {
+            String childId = c.getString(0), name = c.getString(1);
+            if (name == null || !isTallyFile(name)) continue;
+            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, childId);
+            InputStream in = getContentResolver().openInputStream(doc);
+            if (in == null) continue;
+            String prefix = sub.isEmpty() ? "" : sub.replace('/', '_') + "-";
+            File out = new File(tallyCache, id + "-" + prefix + name);
+            FileOutputStream fo = new FileOutputStream(out);
+            byte[] buf = new byte[65536]; int n;
+            while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+            fo.close(); in.close();
+            if (names.length() > 0) names.append('|');
+            names.append(sub.isEmpty() ? name : sub + "/" + name);
+            copied++;
+        }
+        c.close();
+        return copied;
     }
 
     @Override
