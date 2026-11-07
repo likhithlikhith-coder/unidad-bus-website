@@ -24,6 +24,12 @@ company, so that is what this app reads.
    companies can be imported together. Re-importing the same period updates
    vouchers (matched by Tally GUID) instead of duplicating them.
 
+## Android APK
+
+A signed, installable APK is in `../releases/`, built from the native shell in
+`../android/` (see its README for Android Studio instructions). The APK bundles
+this folder as-is and needs no network.
+
 ## Using it
 
 Host the `tally-viewer/` folder on any static web server (GitHub Pages works)
