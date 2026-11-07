@@ -125,8 +125,8 @@
           (S.company && S.company.id === c.id ? '<span class="badge">Open</span>' : '') + '<span class="chev">›</span></button>';
       }).join('') + '</div>';
     }
-    h += '<div class="btn-row"><button class="btn primary block" data-go="sync">⟳ Sync from Tally over Wi-Fi</button></div>';
-    h += '<div class="btn-row"><button class="btn block" data-go="import">＋ Import Tally XML files</button></div>';
+    h += '<div class="btn-row"><button class="btn primary block" data-go="import">📁 Open Tally data folder / files</button></div>';
+    h += '<div class="btn-row"><button class="btn block" data-go="sync">⟳ Sync from Tally over Wi-Fi</button></div>';
     h += '<div class="btn-row"><button class="btn block" data-go="help">Setup guide</button></div>';
     $view.innerHTML = h;
   };
@@ -134,13 +134,18 @@
   SCREENS.help = function () {
     topbar({ title: 'Setup guide', back: true, period: false });
     $view.innerHTML =
-      '<div class="card"><h2>Option A · Sync over Wi-Fi (Android app)</h2><ol class="steps">' +
+      '<div class="card"><h2>Option A · Open the Tally data folder (no export)</h2><ol class="steps">' +
+      '<li>On the PC, open TallyPrime\'s data directory (shown under F1 → Settings → Data path; usually <b>C:\\Users\\Public\\TallyPrime\\data</b>). Each company is a numbered folder such as <b>100000</b>.</li>' +
+      '<li>Copy that company folder to the phone, or ZIP it and send it over WhatsApp or Drive. Only Manager.1800, TranMgr.1800 and Company.1800 are read.</li>' +
+      '<li>In the app tap <b>Open Tally data folder</b> (or pick the three files, or the ZIP). The company name is read from the data.</li></ol>' +
+      '<p class="small muted">Works with TallyPrime Release 3 and later (.1800 data files). Deleted vouchers are skipped; stock movements are read where present. Copying the folder is safe: the app never writes to it.</p></div>' +
+      '<div class="card"><h2>Option B · Sync over Wi-Fi (Android app)</h2><ol class="steps">' +
       '<li>In TallyPrime press <kbd>F1</kbd> (Help) → <b>Settings</b> → <b>Connectivity</b> → <b>Client/Server configuration</b>. Set <b>TallyPrime acts as</b> to <b>Both</b> (or Server), <b>Enable ODBC server</b> Yes, port <b>9000</b>. Restart Tally if asked.</li>' +
       '<li>Allow it through Windows Firewall: Start → "Allow an app through Windows Firewall" → tick TallyPrime for Private networks. If Tally is not listed, add an inbound rule for TCP port 9000.</li>' +
       '<li>Find the PC\'s address: Start → type <kbd>cmd</kbd> → run <kbd>ipconfig</kbd> and note the IPv4 Address (e.g. 192.168.1.10).</li>' +
       '<li>Open the companies you want in Tally. On the phone (same Wi-Fi) open <b>Sync from Tally</b>, enter the address, Connect, pick companies and period, Sync.</li></ol>' +
       '<p class="small muted">Nothing is installed on the PC. The phone sends Tally the same export requests the Export menu uses and reads the replies.</p></div>' +
-      '<div class="section-title">Option B · XML files</div>' +
+      '<div class="section-title">Option C · XML files</div>' +
       '<div class="card"><h2>1. Masters (ledgers, groups, items)</h2><ol class="steps">' +
       '<li>Open the company in TallyPrime and go to the Gateway of Tally.</li>' +
       '<li>Press <kbd>Alt</kbd>+<kbd>E</kbd> (Export) and choose <b>Masters</b>.</li>' +
@@ -161,20 +166,26 @@
 
   /* ---- import ------------------------------------------------------------- */
   SCREENS.import = function () {
-    topbar({ title: 'Import Tally XML', back: true, period: false });
+    topbar({ title: 'Import Tally data', back: true, period: false });
     var opts = '<option value="auto">Auto-detect from file (recommended)</option><option value="new">Create new company…</option>' +
       S.companies.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('');
-    var h = '<div class="card"><div class="field"><label>Import into</label><select id="imp-target">' + opts + '</select></div>' +
+    var h = '<div class="card"><h2>Tally company data folder</h2>' +
+      (hasBridge() && typeof window.TallyBridge.pickFolder === 'function' ? '<button class="btn primary block" id="imp-folder">📁 Open Tally data folder</button><p class="small muted" style="margin-top:8px">Pick the company folder (e.g. <b>100000</b>) from Tally\'s Data directory copied to this phone.</p>' : '') +
+      '<label class="file-drop" style="margin-top:10px"><input type="file" id="imp-tally" multiple><div style="font-size:30px">🗂️</div><div><b>Choose Manager.1800, TranMgr.1800, Company.1800</b></div><div class="small">or a ZIP of the whole company folder</div></label>' +
+      '<p class="small muted">Reads TallyPrime\'s own data files directly. No export needed.</p></div>' +
+      '<div class="card"><h2>Tally XML export</h2><div class="field"><label>Import into</label><select id="imp-target">' + opts + '</select></div>' +
       '<div class="field hidden" id="imp-newname-wrap"><label>New company name</label><input id="imp-newname" placeholder="Company name"></div>' +
-      '<label class="file-drop"><input type="file" id="imp-files" multiple><div style="font-size:30px">📂</div><div><b>Choose XML file(s)</b></div><div class="small">Master.xml, Daybook.xml or any TallyPrime XML export</div></label>' +
+      '<label class="file-drop"><input type="file" id="imp-files" multiple><div style="font-size:30px">📂</div><div><b>Choose XML file(s)</b></div><div class="small">Master.xml, Daybook.xml or any TallyPrime XML export</div></label></div>' +
       '<div id="imp-jobs"></div>' +
-      '<div class="btn-row"><button class="btn primary block hidden" id="imp-save">Save to company</button></div></div>' +
-      '<p class="small muted">Files are parsed on this phone and never uploaded anywhere. Large day books (50–100 MB) can take a minute.</p>' +
+      '<div class="btn-row"><button class="btn primary block hidden" id="imp-save">Save to company</button></div>' +
+      '<p class="small muted">Everything is read on this phone and never uploaded anywhere.</p>' +
       '<div class="btn-row"><button class="btn block" data-go="sync">Or sync directly from Tally over Wi-Fi</button></div>';
     $view.innerHTML = h;
     S.jobs = [];
     document.getElementById('imp-target').onchange = function () { document.getElementById('imp-newname-wrap').classList.toggle('hidden', this.value !== 'new'); };
     document.getElementById('imp-files').onchange = function () { queueFiles(this.files); };
+    document.getElementById('imp-tally').onchange = function () { queueTallyFiles(this.files); };
+    var fb = document.getElementById('imp-folder'); if (fb) fb.onclick = pickTallyFolder;
     document.getElementById('imp-save').onclick = saveJobs;
   };
 
@@ -199,6 +210,42 @@
       pendingParse[id] = { resolve: resolve, reject: reject, onProgress: onProgress };
       getWorker().postMessage({ id: id, buffer: buffer }, [buffer]);
     });
+  }
+  // folder: { 'Manager.1800': ArrayBuffer, ... } → decoded result
+  function decodeFolderInWorker(folder, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      pendingParse[id] = { resolve: resolve, reject: reject, onProgress: onProgress };
+      var transfer = Object.keys(folder).map(function (k) { return folder[k]; });
+      getWorker().postMessage({ id: id, folder: folder }, transfer);
+    });
+  }
+  var TALLY_FILES = ['manager.1800', 'tranmgr.1800', 'company.1800'];
+  function isTallyFile(name) { return /\.1800$/i.test(name) || /\.900$/i.test(name); }
+  // Minimal ZIP reader (stored + deflate via DecompressionStream) for a zipped company folder.
+  function unzipTallyFiles(buf) {
+    var u8 = new Uint8Array(buf), dv = new DataView(buf), out = {}, jobs = [];
+    var eocd = -1;
+    for (var i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) if (u8[i] === 0x50 && u8[i + 1] === 0x4b && u8[i + 2] === 5 && u8[i + 3] === 6) { eocd = i; break; }
+    if (eocd < 0) return Promise.reject(new Error('Not a ZIP file'));
+    var count = dv.getUint16(eocd + 10, true), cd = dv.getUint32(eocd + 16, true), o = cd;
+    for (var n = 0; n < count && o + 46 <= u8.length; n++) {
+      if (dv.getUint32(o, true) !== 0x02014b50) break;
+      var method = dv.getUint16(o + 10, true), csize = dv.getUint32(o + 20, true), usize = dv.getUint32(o + 24, true);
+      var nlen = dv.getUint16(o + 28, true), elen = dv.getUint16(o + 30, true), clen = dv.getUint16(o + 32, true), lho = dv.getUint32(o + 42, true);
+      var name = new TextDecoder().decode(u8.subarray(o + 46, o + 46 + nlen)); o += 46 + nlen + elen + clen;
+      var base = name.split('/').pop();
+      if (TALLY_FILES.indexOf(base.toLowerCase()) === -1) continue;
+      var lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true), start = lho + 30 + lnlen + lelen;
+      var data = u8.subarray(start, start + csize);
+      if (method === 0) out[base] = data.slice().buffer;
+      else if (method === 8 && typeof DecompressionStream !== 'undefined') {
+        jobs.push((function (base, data, usize) {
+          return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(function (ab) { out[base] = ab; });
+        })(base, data, usize));
+      } else return Promise.reject(new Error('ZIP entry ' + base + ' uses an unsupported compression'));
+    }
+    return Promise.all(jobs).then(function () { return out; });
   }
   function describeResult(r) {
     return [r.vouchers.length && pluralize(r.vouchers.length, 'voucher'), r.ledgers.length && pluralize(r.ledgers.length, 'ledger'), r.groups.length && pluralize(r.groups.length, 'group'), r.stockItems.length && pluralize(r.stockItems.length, 'stock item')].filter(Boolean).join(', ');
@@ -246,13 +293,57 @@
     });
     nextJob();
   }
+  // Tally data files chosen from the picker: group .1800 files into one job, unzip ZIPs, pass XML through.
+  function queueTallyFiles(files) {
+    var tally = [], xml = [], zips = [];
+    Array.prototype.forEach.call(files, function (f) {
+      if (/\.zip$/i.test(f.name)) zips.push(f); else if (isTallyFile(f.name)) tally.push(f); else xml.push(f);
+    });
+    if (xml.length) queueFiles(xml);
+    if (tally.length) addFolderJob(tally.map(function (f) { return f.name; }).join(', '), function () {
+      var folder = {};
+      return Promise.all(tally.map(function (f) { return f.arrayBuffer().then(function (b) { folder[f.name] = b; }); })).then(function () { return folder; });
+    }, tally.reduce(function (a, f) { return a + f.size; }, 0));
+    zips.forEach(function (z) { addFolderJob(z.name, function () { return z.arrayBuffer().then(unzipTallyFiles); }, z.size); });
+    if (!xml.length && !tally.length && !zips.length) toast('Pick Manager.1800, TranMgr.1800 and Company.1800, or a ZIP of the folder');
+  }
+  function addFolderJob(label, getFolder, size) {
+    var box = document.getElementById('imp-jobs');
+    var job = { id: 'j' + Date.now() + Math.random().toString(36).slice(2, 6), file: { name: label, size: size || 0 }, state: 'queued', progress: 0, result: null, getFolder: getFolder };
+    S.jobs.push(job);
+    var el = document.createElement('div'); el.id = job.id; box.appendChild(el);
+    updateJob(job); nextJob();
+  }
+  function pickTallyFolder() {
+    var id = 'd' + Date.now().toString(36);
+    bridgePending[id] = { resolve: function (names) {
+      if (!names || !names.length) { toast('No Tally data files found in that folder'); return; }
+      addFolderJob('Tally folder (' + names.length + ' files)', function () {
+        var folder = {};
+        return Promise.all(names.map(function (n) { return fetch('/cache/' + id + '-' + n, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('Could not read ' + n); return r.arrayBuffer(); }).then(function (b) { folder[n] = b; }); }))
+          .then(function () { try { window.TallyBridge.discard(id); } catch (e) { /* ignore */ } return folder; });
+      }, 0);
+    }, reject: function (e) { toast(e.message, 4000); } };
+    window.TallyBridge.pickFolder(id);
+  }
+  window.TallyBridgeFolder = function (id, ok, result) {
+    var p = bridgePending[id]; if (!p) return; delete bridgePending[id];
+    if (!ok) { p.reject(new Error(result || 'Folder not opened')); return; }
+    p.resolve(String(result).split('|').filter(Boolean));
+  };
   function nextJob() {
     if (S.jobs.some(function (j) { return j.state === 'running'; })) return;
     var job = S.jobs.filter(function (j) { return j.state === 'queued'; })[0];
     if (!job) { var btn = document.getElementById('imp-save'); if (btn) btn.classList.toggle('hidden', !S.jobs.some(function (j) { return j.state === 'done'; })); return; }
     job.state = 'running'; updateJob(job);
-    job.file.arrayBuffer()
-      .then(function (buf) { return parseInWorker(buf, function (p) { job.progress = p; updateJob(job); }); })
+    var work = job.getFolder
+      ? job.getFolder().then(function (folder) {
+          var have = Object.keys(folder).map(function (k) { return k.toLowerCase(); });
+          if (have.indexOf('manager.1800') === -1 && have.indexOf('tranmgr.1800') === -1) throw new Error('No Manager.1800 or TranMgr.1800 found. Pick the files inside the company folder (e.g. 100000).');
+          return decodeFolderInWorker(folder, function (p) { job.progress = p; updateJob(job); });
+        })
+      : job.file.arrayBuffer().then(function (buf) { return parseInWorker(buf, function (p) { job.progress = p; updateJob(job); }); });
+    work
       .then(function (r) { job.result = r; job.state = 'done'; job.progress = 1; }, function (e) { job.state = 'error'; job.error = String(e.message || e); })
       .then(function () { updateJob(job); nextJob(); });
   }
@@ -261,11 +352,12 @@
     var r = job.result, s;
     if (job.state === 'done') {
       s = (r.company ? '<b>' + esc(r.company) + '</b> · ' : '') + describeResult(r);
-      if (!r.vouchers.length && !r.ledgers.length && !r.groups.length) s += '<span class="dr">Nothing recognised in this file. Is it a TallyPrime XML export?</span>';
+      if (!r.vouchers.length && !r.ledgers.length && !r.groups.length) s += '<span class="dr">Nothing recognised in this file. Is it a TallyPrime XML export or data folder?</span>';
+      if (r.source === 'tally-folder') s += '<div class="small faint">Decoded from TallyPrime data files' + (r.companyInfo && r.companyInfo.booksFrom ? ' · books from ' + fmtDate(r.companyInfo.booksFrom) : '') + '</div>';
       if (r.warnings.length) s += '<div class="dr small">' + r.warnings.map(esc).join('<br>') + '</div>';
     } else if (job.state === 'error') s = '<span class="dr">Failed: ' + esc(job.error) + '</span>';
     else s = job.state === 'running' ? 'Parsing… ' + Math.round(job.progress * 100) + '%' : 'Waiting';
-    el.innerHTML = '<div class="kv" style="display:block"><div><b>' + esc(job.file.name) + '</b> <span class="faint small">' + (job.file.size / 1048576).toFixed(1) + ' MB</span></div><div class="small muted">' + s + '</div><div class="progress"><div style="width:' + Math.round(job.progress * 100) + '%"></div></div></div>';
+    el.innerHTML = '<div class="kv" style="display:block"><div><b>' + esc(job.file.name) + '</b> <span class="faint small">' + (job.file.size ? (job.file.size / 1048576).toFixed(1) + ' MB' : '') + '</span></div><div class="small muted">' + s + '</div><div class="progress"><div style="width:' + Math.round(job.progress * 100) + '%"></div></div></div>';
   }
   function saveJobs() {
     var target = document.getElementById('imp-target').value, newName = (document.getElementById('imp-newname').value || '').trim();
@@ -746,7 +838,7 @@
     }
     h += '<div class="list"><button class="row" data-go="companies"><div class="main"><div class="t">Companies</div><div class="s">' + pluralize(S.companies.length, 'company') + ' on this phone</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
-      '<button class="row" data-go="import"><div class="main"><div class="t">Import Tally XML files</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-go="import"><div class="main"><div class="t">Open Tally data folder / XML files</div><div class="s">Reads Manager.1800, TranMgr.1800, Company.1800 directly</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="help"><div class="main"><div class="t">How to export from TallyPrime</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-act="theme"><div class="main"><div class="t">Theme</div><div class="s">' + esc(lsGet('tv.theme', 'auto')) + '</div></div><span class="chev">›</span></button></div>';
     h += '<p class="small faint" style="text-align:center">Tally Viewer · offline · all data stays in this browser\'s storage<span id="storage"></span></p>';

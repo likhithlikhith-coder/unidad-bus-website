@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.database.Cursor;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -43,6 +45,8 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity {
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final int FILE_CHOOSER = 1001;
+    private static final int FOLDER_PICKER = 1002;
+    private String pendingFolderId;
 
     private WebView webView;
     private ValueCallback<Uri[]> pendingFileCallback;
@@ -183,7 +187,29 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void discard(String id) {
-            if (id.matches("[A-Za-z0-9_-]{1,64}")) new File(tallyCache, id + ".xml").delete();
+            if (!id.matches("[A-Za-z0-9_-]{1,64}")) return;
+            new File(tallyCache, id + ".xml").delete();
+            File[] all = tallyCache.listFiles();
+            if (all != null) for (File f : all) if (f.getName().startsWith(id + "-")) f.delete();
+        }
+
+        /**
+         * Opens the system folder picker. The .1800 files Tally Viewer needs are copied to
+         * cache/<id>-<name> and window.TallyBridgeFolder(id, ok, "name|name|...") is called.
+         */
+        @JavascriptInterface
+        public void pickFolder(final String id) {
+            if (!id.matches("[A-Za-z0-9_-]{1,64}")) return;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    pendingFolderId = id;
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    try { startActivityForResult(intent, FOLDER_PICKER); }
+                    catch (Exception e) { pendingFolderId = null; folderDone(id, false, "Folder picker not available"); }
+                }
+            });
         }
     }
 
@@ -198,8 +224,59 @@ public class MainActivity extends Activity {
         return b.append('"').toString();
     }
 
+    private void folderDone(final String id, final boolean ok, final String result) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript("window.TallyBridgeFolder && window.TallyBridgeFolder(" + js(id) + "," + ok + "," + js(result) + ")", null);
+            }
+        });
+    }
+
+    private void copyTallyFolder(final String id, final Uri tree) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                StringBuilder names = new StringBuilder();
+                try {
+                    Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                    Cursor c = getContentResolver().query(children, new String[]{ DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null);
+                    if (c != null) {
+                        while (c.moveToNext()) {
+                            String docId = c.getString(0), name = c.getString(1);
+                            if (name == null) continue;
+                            String lower = name.toLowerCase();
+                            if (!(lower.equals("manager.1800") || lower.equals("tranmgr.1800") || lower.equals("company.1800"))) continue;
+                            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+                            InputStream in = getContentResolver().openInputStream(doc);
+                            if (in == null) continue;
+                            File out = new File(tallyCache, id + "-" + name);
+                            FileOutputStream fo = new FileOutputStream(out);
+                            byte[] buf = new byte[65536]; int n;
+                            while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+                            fo.close(); in.close();
+                            if (names.length() > 0) names.append('|');
+                            names.append(name);
+                        }
+                        c.close();
+                    }
+                    folderDone(id, true, names.toString());
+                } catch (Exception e) {
+                    folderDone(id, false, e.getClass().getSimpleName() + ": " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FOLDER_PICKER) {
+            String id = pendingFolderId; pendingFolderId = null;
+            if (id == null) return;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) copyTallyFolder(id, data.getData());
+            else folderDone(id, false, "");
+            return;
+        }
         if (requestCode != FILE_CHOOSER || pendingFileCallback == null) { super.onActivityResult(requestCode, resultCode, data); return; }
         Uri[] result = null;
         if (resultCode == RESULT_OK && data != null) {

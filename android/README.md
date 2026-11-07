@@ -10,10 +10,14 @@ its own and contacts nothing else.
 
 The ready-to-install APK is in `../releases/`.
 
-`MainActivity` also exposes `window.TallyBridge` to the page: it POSTs an XML
-request to the PC, writes the reply to the app cache, and the page reads it back
-through the asset loader, so large exports never pass through a JavaScript
-string.
+`MainActivity` also exposes `window.TallyBridge` to the page:
+
+- `request(id, url, xml)` POSTs an XML request to TallyPrime on the LAN and
+  writes the reply to the app cache; the page reads it back through the asset
+  loader, so large exports never pass through a JavaScript string.
+- `pickFolder(id)` opens the system folder picker (Storage Access Framework)
+  and copies `Manager.1800`, `TranMgr.1800` and `Company.1800` from the chosen
+  Tally company folder into the cache for the page to decode.
 
 ## Install on a phone
 

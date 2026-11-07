@@ -5,16 +5,27 @@ An installable, offline web app for Android (and any modern browser) that loads
 book and reports for as many companies as you like. Nothing is uploaded
 anywhere: files are parsed on the phone and kept in the browser's storage.
 
-## Why XML export and not the Tally backup?
+## Three ways to get data in
 
-TallyPrime's data folder (`*.900` files) and TBK backups are a proprietary,
-undocumented format. No outside app can read them. TallyPrime's XML export,
-however, contains every master and every voucher and is two key presses per
-company, so that is what this app reads.
+1. **Open the Tally data folder directly** (no export, no PC software): copy a
+   company folder such as `100000` from TallyPrime's data directory to the
+   phone, or ZIP it, and open it in the app. The app decodes the `.1800`
+   files itself. See *Data folder format* below.
+2. **Sync over Wi-Fi** from a running TallyPrime (Android app only).
+3. **Import TallyPrime XML exports** (Master.xml, Daybook.xml).
 
 ## Getting data in
 
-### Option A: sync over Wi-Fi (Android app)
+### Option A: the Tally data folder
+
+TallyPrime stores each company as a numbered folder (`100000`, `100001`, …)
+under its data path (F1 → Settings → Data path; usually
+`C:\Users\Public\TallyPrime\data`). Copy that folder to the phone, or ZIP it
+and send it, then in the app choose **Open Tally data folder** (Android app) or
+pick `Manager.1800`, `TranMgr.1800` and `Company.1800` (or the ZIP) in the
+file picker. Nothing is written back to the folder.
+
+### Option B: sync over Wi-Fi (Android app)
 
 TallyPrime runs an XML server on port 9000 while it is open. The Android app
 can ask it directly for all masters and all vouchers, so no files are involved:
@@ -33,7 +44,7 @@ Nothing is installed on the PC and the phone never talks to anything but the
 address you type. The sync feature needs the Android app because browsers block
 plain-HTTP requests from an HTTPS page.
 
-### Option B: XML files
+### Option C: XML files
 
 `tools/tally-export.cmd` (Windows) does the same requests from the PC itself and
 writes `<Company>-Master.xml` and `<Company>-Daybook.xml` to a folder on the
@@ -76,6 +87,42 @@ Screens:
 - **Period** – tap the chip in the top bar: financial years, last month, this
   month, all data, or a custom range.
 - **More** – switch, rename or delete companies; imported file log; theme.
+
+## Data folder format
+
+`js/tallydb.js` is a reverse-engineered reader for TallyPrime Release 3+
+company folders (`.1800` files), worked out from a real company folder. What
+is known so far:
+
+- Every file is a 512-byte header followed by 512-byte pages. Each page starts
+  with `[hash][object id][pages in chain][next page][page type][record no]`.
+  Object pages (type 11) carry a ~64-byte variable header; all other pages and
+  all continuation pages carry a 28-byte header.
+- Values are a tag-length-value stream: `[flags u16][tag u16][0][type u8]`
+  then the payload. Types seen: empty, flag, u32 references, i32, date (days
+  since 31-Dec-1899), 8-byte amounts and rates scaled by 100,000, quantity
+  (amount + unit id), rate (value, per quantity, unit id), UTF-16 strings with
+  a 2-byte length, nested records with a 2-byte length (and an optional u32 key
+  when flag 0x400 is set), and an 8-byte timestamp.
+- `Manager.1800` holds masters, one object per page chain. Tag 3 (i32) is the
+  object kind: 2 group, 3 ledger, 6 godown, 7 stock group, 9 stock item,
+  10 voucher type, 12 unit. Names are in tag 503 or a language record keyed
+  1033. A ledger's parent group is tag 3 (u32 reference) → group object id.
+  Opening balance is tag 2603. Voucher types carry their base type code in
+  tag 4002.
+- `TranMgr.1800` holds vouchers. Each voucher object id has a header record
+  (page type 66, record 1: date in tag 3, voucher type and party as object ids,
+  number) and a posting record (page type 66, record 2) whose tail is a tag
+  stream with the ledger lines: tag 10003 lists, each line a ledger id and an
+  amount; negative = debit. Vouchers edited in TallyPrime also have page-type-5
+  chains, one per version, indexed by a page-type-3 record; the highest version
+  is current and provides narration, bill and bank details. A voucher whose
+  posting record has no lines is deleted or empty and is skipped.
+- `Company.1800` holds the company name, address, PAN and books-from date.
+
+Not yet seen in sample data and therefore unverified: inventory lines on
+sales/purchase vouchers, cost centres, bill-wise references, cancelled and
+optional flags, and TallyVault-encrypted companies (those cannot be read).
 
 ## How figures are computed
 
