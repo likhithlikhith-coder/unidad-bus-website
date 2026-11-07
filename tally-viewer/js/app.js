@@ -269,7 +269,7 @@
         if (!company) { company = { id: uid(), name: g.name, createdAt: Date.now() }; created = true; }
         return (created ? Promise.resolve(null) : TVDB.getData(company.id)).then(function (data) {
           data = data || TVModel.emptyData(company.id);
-          g.items.forEach(function (it) { TVModel.mergeImport(data, it.result, it.meta); });
+          g.items.forEach(function (it) { TVModel.mergeImport(data, it.result, it.meta); if (it.result.companyInfo) company.info = it.result.companyInfo; });
           var book = new Book(data);
           company.updatedAt = Date.now();
           company.counts = { vouchers: data.vouchers.length, ledgers: Object.keys(data.ledgers).length, groups: Object.keys(data.groups).length, stockItems: Object.keys(data.stockItems).length };
@@ -851,7 +851,12 @@
     topbar({ title: 'More', period: false });
     var c = S.company, b = S.book, h = '';
     if (c && b) {
+      var ci = c.info || {};
       h += '<div class="card"><h2>Current company</h2><div class="kv"><span>Name</span><span><b>' + esc(c.name) + '</b></span></div>' +
+        (ci.booksFrom ? '<div class="kv"><span>Books from</span><span>' + fmtDateLong(ci.booksFrom) + '</span></div>' : '') +
+        (ci.pan ? '<div class="kv"><span>PAN</span><span>' + esc(ci.pan) + '</span></div>' : '') +
+        (ci.address ? '<div class="kv"><span>Address</span><span>' + esc(ci.address) + (ci.pin ? ' - ' + esc(ci.pin) : '') + '</span></div>' : '') +
+        (ci.tallyVersion ? '<div class="kv"><span>Data from</span><span>' + esc(ci.tallyVersion) + '</span></div>' : '') +
         '<div class="kv"><span>Data range</span><span>' + (b.minDate ? fmtDate(b.minDate) + ' – ' + fmtDate(b.maxDate) : '–') + '</span></div>' +
         '<div class="kv"><span>Vouchers</span><span>' + NF0.format(b.vouchers.length) + '</span></div><div class="kv"><span>Ledgers / groups</span><span>' + Object.keys(b.data.ledgers).length + ' / ' + Object.keys(b.data.groups).length + '</span></div>' +
         '<div class="kv"><span>Stock items</span><span>' + Object.keys(b.data.stockItems).length + '</span></div>' +

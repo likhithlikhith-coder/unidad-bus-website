@@ -306,7 +306,8 @@
         // ledger entries: posting record (ids) preferred, else editable chain (names)
         var ents = ledgerEntries(post, ledById, ids);
         // Cancelled and optional vouchers post nothing, so their lines live only in the editable chain.
-        if (!ents.length && (v.cancelled || v.optional) && cur) ents = ledgerEntries(cur, ledById, ids);
+        // A company with no posting records at all (older data) also falls back to the chain.
+        if (!ents.length && cur && (v.cancelled || v.optional || !rr[2])) ents = ledgerEntries(cur, ledById, ids);
         v.entries = ents;
         if (cur) v.items = inventoryEntries(cur, ids, unitById);
         if (!v.entries.length) { empty++; continue; }

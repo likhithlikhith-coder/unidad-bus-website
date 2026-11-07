@@ -343,7 +343,7 @@
       if (opts.type && v.type !== opts.type) continue;
       if (opts.base && v.base !== opts.base) continue;
       if (q) {
-        var hay = (v.party + ' ' + v.narration + ' ' + v.number + ' ' + v.ref + ' ' + v.type + ' ' + v.total).toLowerCase();
+        var hay = (v.party + ' ' + v.narration + ' ' + v.number + ' ' + v.ref + ' ' + v.type + ' ' + v.total + (v.cancelled ? ' cancelled' : '') + (v.optional ? ' optional' : '')).toLowerCase();
         if (hay.indexOf(q) === -1) {
           var hit = false;
           for (var k = 0; k < v.entries.length && !hit; k++) if (v.entries[k].ledger.toLowerCase().indexOf(q) !== -1) hit = true;
