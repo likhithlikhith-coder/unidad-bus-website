@@ -88,6 +88,11 @@ Screens:
   Payables, Cash & Bank, Stock Summary, Monthly Summary, Voucher Register.
 - **Period** – tap the chip in the top bar: financial years, last month, this
   month, all data, or a custom range.
+- **Export** – any ledger statement, the ledger balance list (with the current
+  filter and search), receivables and payables can be saved as Excel (.xlsx)
+  or PDF. Both files are generated on the phone by `js/export.js` without any
+  library; in the Android app the file goes to Downloads/TallyViewer and the
+  share sheet opens, in a browser it downloads.
 - **More** – switch, rename or delete companies; imported file log; theme.
 
 ## Data folder format

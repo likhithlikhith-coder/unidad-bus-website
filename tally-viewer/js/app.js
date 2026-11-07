@@ -582,6 +582,82 @@
     svg.addEventListener('pointerdown', pick); svg.addEventListener('pointermove', function (ev) { if (ev.pointerType === 'mouse') pick(ev); });
   }
 
+
+  /* ---- exports (Excel / PDF) ---------------------------------------------- */
+  function drcr(n) { return Math.abs(n) < 0.005 ? '' : (n < 0 ? 'Dr' : 'Cr'); }
+  function balText(n) { return Math.abs(n) < 0.005 ? '0.00' : fmt(Math.abs(n)) + ' ' + drcr(n); }
+  function periodLabel() { return fmtDate(S.period.from) + ' to ' + fmtDate(S.period.to); }
+  function exportName(kind, what) { return (S.company ? S.company.name + ' - ' : '') + what + ' - ' + fmtDate(S.period.from).replace(/ /g, '') + ' to ' + fmtDate(S.period.to).replace(/ /g, '') + (kind === 'xlsx' ? '.xlsx' : '.pdf'); }
+  function afterSave(p) {
+    p.then(function (r) { toast(r.where && r.where !== 'download' ? 'Saved to ' + r.where : 'Export ready: ' + r.name, 4000); })
+     .catch(function (e) { toast('Export failed: ' + e.message, 5000); });
+  }
+  function exportButtons(key) {
+    return '<div class="btn-row"><button class="btn" data-export="' + key + ':xlsx">⤓ Excel</button><button class="btn" data-export="' + key + ':pdf">⤓ PDF</button></div>';
+  }
+  // Ledger statement: one ledger, all transactions in the period with running balance
+  function exportLedger(name, kind) {
+    var b = S.book, p = S.period, led = b.ledgers[name], st = b.ledgerStatement(name, p.from, p.to), bl = st.balance;
+    var meta = ['Period: ' + periodLabel(), 'Group: ' + (led.chain.length ? led.chain.join(' > ') : 'Primary')];
+    if (led.info && led.info.gstin) meta.push('GSTIN: ' + led.info.gstin);
+    var totalsDr = 0, totalsCr = 0;
+    var rows = st.rows.map(function (x) {
+      var v = x.voucher, dr = x.amount < 0 ? -x.amount : 0, cr = x.amount > 0 ? x.amount : 0;
+      totalsDr += dr; totalsCr += cr;
+      return { date: fmtDate(x.date), part: x.others.join(', ') || v.party || v.type, type: v.type, no: v.number, dr: dr, cr: cr, bal: x.balance, narr: v.narration };
+    });
+    if (kind === 'xlsx') {
+      var sheet = {
+        name: 'Ledger', title: [name, S.company.name, meta.join('  |  ')],
+        columns: [{ title: 'Date', width: 11 }, { title: 'Particulars', width: 40 }, { title: 'Vch Type', width: 14 }, { title: 'Vch No', width: 10 }, { title: 'Debit', width: 15, type: 'num' }, { title: 'Credit', width: 15, type: 'num' }, { title: 'Balance', width: 16, type: 'num' }, { title: 'Dr/Cr', width: 6 }, { title: 'Narration', width: 50 }],
+        rows: [[fmtDate(p.from), 'Opening balance', '', '', null, null, Math.abs(bl.opening), drcr(bl.opening), '']].concat(rows.map(function (r) { return [r.date, r.part, r.type, r.no, r.dr || null, r.cr || null, Math.abs(r.bal), drcr(r.bal), r.narr]; })),
+        totals: [['', 'Total', '', '', totalsDr, totalsCr, null, '', ''], [fmtDate(p.to), 'Closing balance', '', '', null, null, Math.abs(bl.closing), drcr(bl.closing), '']]
+      };
+      afterSave(TVExport.save(exportName('xlsx', name), TVExport.xlsx([sheet])));
+    } else {
+      var doc = {
+        title: name, subtitle: S.company.name, meta: meta,
+        columns: [{ title: 'Date', width: 52, align: 'l' }, { title: 'Particulars', width: 170, align: 'l' }, { title: 'Vch Type', width: 62, align: 'l' }, { title: 'No', width: 38, align: 'l' }, { title: 'Debit', width: 72, align: 'r' }, { title: 'Credit', width: 72, align: 'r' }, { title: 'Balance', width: 86, align: 'r' }],
+        rows: [[fmtDate(p.from), 'Opening balance', '', '', '', '', balText(bl.opening)]].concat(rows.map(function (r) { return [r.date, r.part, r.type, r.no, r.dr ? fmt(r.dr) : '', r.cr ? fmt(r.cr) : '', balText(r.bal)]; })),
+        totals: [['', 'Total', '', '', fmt(totalsDr), fmt(totalsCr), ''], [fmtDate(p.to), 'Closing balance', '', '', '', '', balText(bl.closing)]]
+      };
+      afterSave(TVExport.save(exportName('pdf', name), TVExport.pdf(doc)));
+    }
+  }
+  // Ledger balances: a list of ledgers with opening, movement and closing for the period
+  function exportLedgerList(names, label, kind) {
+    var b = S.book, p = S.period, tDr = 0, tCr = 0;
+    var rows = names.map(function (n) {
+      var led = b.ledgers[n], bl = b.ledgerBalance(n, p.from, p.to); tDr += bl.debit; tCr += bl.credit;
+      return { name: n, group: led.parent || (led.implicit ? 'Not in masters' : 'Primary'), bl: bl };
+    });
+    if (kind === 'xlsx') {
+      var sheet = {
+        name: 'Ledgers', title: [label, S.company.name, 'Period: ' + periodLabel()],
+        columns: [{ title: 'Ledger', width: 40 }, { title: 'Group', width: 24 }, { title: 'Opening', width: 15, type: 'num' }, { title: 'Dr/Cr', width: 6 }, { title: 'Debit', width: 15, type: 'num' }, { title: 'Credit', width: 15, type: 'num' }, { title: 'Closing', width: 15, type: 'num' }, { title: 'Dr/Cr', width: 6 }],
+        rows: rows.map(function (r) { return [r.name, r.group, Math.abs(r.bl.opening) || null, drcr(r.bl.opening), r.bl.debit || null, r.bl.credit || null, Math.abs(r.bl.closing) || null, drcr(r.bl.closing)]; }),
+        totals: [['Total', '', null, '', tDr, tCr, null, '']]
+      };
+      afterSave(TVExport.save(exportName('xlsx', label), TVExport.xlsx([sheet])));
+    } else {
+      var doc = {
+        title: label, subtitle: S.company.name, meta: ['Period: ' + periodLabel(), pluralize(rows.length, 'ledger')],
+        columns: [{ title: 'Ledger', width: 170, align: 'l' }, { title: 'Group', width: 95, align: 'l' }, { title: 'Opening', width: 80, align: 'r' }, { title: 'Debit', width: 70, align: 'r' }, { title: 'Credit', width: 70, align: 'r' }, { title: 'Closing', width: 82, align: 'r' }],
+        rows: rows.map(function (r) { return [r.name, r.group, balText(r.bl.opening), r.bl.debit ? fmt(r.bl.debit) : '', r.bl.credit ? fmt(r.bl.credit) : '', balText(r.bl.closing)]; }),
+        totals: [['Total', '', '', fmt(tDr), fmt(tCr), '']]
+      };
+      afterSave(TVExport.save(exportName('pdf', label), TVExport.pdf(doc)));
+    }
+  }
+  var LFILTER_LABEL = { all: 'All ledgers', debtors: 'Sundry debtors', creditors: 'Sundry creditors', cashbank: 'Cash and bank', income: 'Income ledgers', expense: 'Expense ledgers', other: 'Other ledgers' };
+  function runExport(key, kind) {
+    var parts = key.split('/'), what = parts[0], arg = parts.slice(1).join('/');
+    if (!S.book) return;
+    if (what === 'ledger') exportLedger(decodeURIComponent(arg), kind);
+    else if (what === 'ledgers') { var sel = JSON.parse(decodeURIComponent(arg)); exportLedgerList(S.lastLedgerList || [], (LFILTER_LABEL[sel.f] || 'Ledgers') + (sel.q ? ' matching "' + sel.q + '"' : ''), kind); }
+    else if (what === 'receivables' || what === 'payables') exportLedgerList(S.lastPartyList || [], what === 'receivables' ? 'Receivables (Sundry debtors)' : 'Payables (Sundry creditors)', kind);
+  }
+
   /* ---- ledgers ------------------------------------------------------------ */
   var LFILTERS = [['all', 'All'], ['debtors', 'Debtors'], ['creditors', 'Creditors'], ['cashbank', 'Cash & Bank'], ['income', 'Income'], ['expense', 'Expenses'], ['other', 'Others']];
   function ledgerMatchesFilter(led, f) {
@@ -598,20 +674,22 @@
   SCREENS.ledgers = function (r) {
     var b = S.book, p = S.period, f = r.q.f || 'all', q = (r.q.q || '').toLowerCase(), showNil = r.q.nil === '1';
     topbar({ title: 'Ledgers', sub: S.company.name, extra: '<div class="chips">' + LFILTERS.map(function (x) { return '<button class="chip ' + (f === x[0] ? 'on' : '') + '" data-filter="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' });
-    var rows = [], total = 0, hidden = 0;
+    var rows = [], total = 0, hidden = 0, names = [];
     b.ledgerNames.forEach(function (n) {
       var led = b.ledgers[n];
       if (!ledgerMatchesFilter(led, f)) return;
       if (q && n.toLowerCase().indexOf(q) === -1 && (led.parent || '').toLowerCase().indexOf(q) === -1 && !(led.info.aliases || []).some(function (a) { return a.toLowerCase().indexOf(q) !== -1; })) return;
       var bl = b.ledgerBalance(n, p.from, p.to);
       if (!showNil && Math.abs(bl.closing) < 0.005 && !bl.count) { hidden++; return; }
-      total++;
+      total++; names.push(n);
       rows.push(ledgerRow(n, bl.closing, led.parent || (led.implicit ? 'Not in masters' : 'Primary')));
     });
+    S.lastLedgerList = names;
     var h = '<div class="search"><input type="search" id="lsearch" placeholder="Search ' + b.ledgerNames.length + ' ledgers" value="' + esc(r.q.q || '') + '"></div>';
     h += rows.length ? '<div class="list" id="llist">' + rows.slice(0, 300).join('') + '</div>' : '<div class="empty">No ledgers match.</div>';
     if (rows.length > 300) h += '<button class="btn block" id="lmore">Show all ' + rows.length + '</button>';
     if (hidden) h += '<p class="small muted" style="text-align:center">' + hidden + ' ledgers with no balance and no transactions hidden · <a href="#/ledgers?f=' + f + '&nil=1&q=' + encodeURIComponent(r.q.q || '') + '">show</a></p>';
+    if (rows.length) h += '<p class="small muted" style="margin:14px 2px 4px">Export ' + pluralize(rows.length, 'ledger') + ' with balances for ' + esc(S.period.label) + '</p>' + exportButtons('ledgers/' + encodeURIComponent(JSON.stringify({ f: f, q: r.q.q || '' })));
     $view.innerHTML = h;
     var inp = document.getElementById('lsearch'), t;
     inp.oninput = function () { clearTimeout(t); var v = inp.value; t = setTimeout(function () { history.replaceState(null, '', '#/ledgers?f=' + f + '&q=' + encodeURIComponent(v) + (showNil ? '&nil=1' : '')); render(); var i2 = document.getElementById('lsearch'); i2.focus(); i2.setSelectionRange(v.length, v.length); }, 250); };
@@ -629,6 +707,7 @@
     topbar({ title: name, sub: led.chain.length ? led.chain.join(' › ') : (led.implicit ? 'Not in masters' : 'Primary'), back: true });
     var h = '<div class="tiles"><div class="tile"><div class="label">Opening</div><div class="value" style="font-size:16px">' + bal(bl.opening) + '</div></div><div class="tile"><div class="label">Closing</div><div class="value" style="font-size:16px">' + bal(bl.closing) + '</div></div>' +
       '<div class="tile"><div class="label">Debits</div><div class="value num" style="font-size:16px">' + fmt(bl.debit) + '</div></div><div class="tile"><div class="label">Credits</div><div class="value num" style="font-size:16px">' + fmt(bl.credit) + '</div></div></div>';
+    h += exportButtons('ledger/' + encodeURIComponent(name));
     var contact = [];
     if (info.gstin) contact.push(['GSTIN', info.gstin]);
     if (info.phone) contact.push(['Phone', '<a href="tel:' + esc(info.phone) + '">' + esc(info.phone) + '</a>']);
@@ -832,6 +911,8 @@
     var h = '<div class="card"><div class="kv"><span>' + (kind === 'debtor' ? 'Total receivable' : 'Total payable') + '</span><span class="num" style="font-weight:700">' + fmt(out) + '</span></div><div class="kv"><span>' + pluralize(main.length, 'party') + ' as on ' + fmtDate(to) + '</span><span></span></div></div>';
     h += '<div class="list">' + main.map(function (d) { return ledgerRow(d.name, d.closing); }).join('') + '</div>';
     if (other.length) h += '<div class="section-title">' + (kind === 'debtor' ? 'Debtors with credit balance' : 'Creditors with debit balance') + ' · ' + fmt(opp) + '</div><div class="list">' + other.map(function (d) { return ledgerRow(d.name, d.closing); }).join('') + '</div>';
+    S.lastPartyList = main.concat(other).map(function (d) { return d.name; });
+    h += exportButtons(kind === 'debtor' ? 'receivables' : 'payables');
     return h;
   }
 
@@ -925,8 +1006,9 @@
 
   /* ---- global events ------------------------------------------------------ */
   document.addEventListener('click', function (ev) {
-    var el = ev.target.closest('[data-go],[data-act],[data-ledger],[data-voucher],[data-company],[data-stock]');
+    var el = ev.target.closest('[data-go],[data-act],[data-ledger],[data-voucher],[data-company],[data-stock],[data-export]');
     if (!el) return;
+    if (el.hasAttribute('data-export')) { var ex = el.getAttribute('data-export').split(':'); try { runExport(ex[0], ex[1]); } catch (e) { toast('Export failed: ' + e.message, 5000); } return; }
     if (el.hasAttribute('data-go')) { ev.preventDefault(); go('#/' + el.getAttribute('data-go')); return; }
     if (el.hasAttribute('data-ledger')) { go('#/ledger/' + encodeURIComponent(el.getAttribute('data-ledger'))); return; }
     if (el.hasAttribute('data-voucher')) { go('#/voucher/' + el.getAttribute('data-voucher')); return; }

@@ -15,6 +15,8 @@ The ready-to-install APK is in `../releases/`.
 - `request(id, url, xml)` POSTs an XML request to TallyPrime on the LAN and
   writes the reply to the app cache; the page reads it back through the asset
   loader, so large exports never pass through a JavaScript string.
+- `saveFile(name, mime, base64)` writes an export to Downloads/TallyViewer
+  (Android 10+) and opens the share sheet through a `FileProvider`.
 - `pickFolder(id)` opens the system folder picker (Storage Access Framework)
   and copies `Manager.1800`, `TranMgr.1800` and `Company.1800` from the chosen
   Tally company folder into the cache for the page to decode.

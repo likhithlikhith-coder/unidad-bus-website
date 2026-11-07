@@ -6,6 +6,12 @@ import android.content.Intent;
 import android.net.Uri;
 import android.provider.DocumentsContract;
 import android.database.Cursor;
+import android.content.ContentValues;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.util.Base64;
+import androidx.core.content.FileProvider;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -191,6 +197,65 @@ public class MainActivity extends Activity {
             new File(tallyCache, id + ".xml").delete();
             File[] all = tallyCache.listFiles();
             if (all != null) for (File f : all) if (f.getName().startsWith(id + "-")) f.delete();
+        }
+
+        /**
+         * Saves an export (base64 bytes) to Downloads (Android 10+) and offers the share sheet.
+         * Calls window.TallyBridgeSaved(name, ok, whereOrError).
+         */
+        @JavascriptInterface
+        public void saveFile(final String name, final String mime, final String b64) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String safe = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+                    if (safe.isEmpty()) safe = "export";
+                    try {
+                        byte[] data = Base64.decode(b64, Base64.DEFAULT);
+                        File dir = new File(getCacheDir(), "exports");
+                        dir.mkdirs();
+                        File f = new File(dir, safe);
+                        FileOutputStream fo = new FileOutputStream(f);
+                        fo.write(data);
+                        fo.close();
+                        String where = "";
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            try {
+                                ContentValues v = new ContentValues();
+                                v.put(MediaStore.Downloads.DISPLAY_NAME, safe);
+                                v.put(MediaStore.Downloads.MIME_TYPE, mime);
+                                v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/TallyViewer");
+                                Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                                if (u != null) {
+                                    OutputStream os = getContentResolver().openOutputStream(u);
+                                    if (os != null) { os.write(data); os.close(); where = "Downloads/TallyViewer/" + safe; }
+                                }
+                            } catch (Exception ignored) { }
+                        }
+                        final Uri share = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".files", f);
+                        final String fWhere = where, fSafe = safe;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                webView.evaluateJavascript("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",true," + js(fWhere) + ")", null);
+                                Intent send = new Intent(Intent.ACTION_SEND);
+                                send.setType(mime);
+                                send.putExtra(Intent.EXTRA_STREAM, share);
+                                send.putExtra(Intent.EXTRA_SUBJECT, fSafe);
+                                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                try { startActivity(Intent.createChooser(send, "Share " + fSafe)); } catch (Exception ignored) { }
+                            }
+                        });
+                    } catch (final Exception e) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                webView.evaluateJavascript("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",false," + js(e.getClass().getSimpleName() + ": " + e.getMessage()) + ")", null);
+                            }
+                        });
+                    }
+                }
+            }).start();
         }
 
         /**
