@@ -241,7 +241,7 @@
   /* ---- Tally object extraction ------------------------------------------- */
 
   function newResult() {
-    return { company: '', groups: [], ledgers: [], stockItems: [], stockGroups: [], units: [], voucherTypes: [], vouchers: [], others: {}, warnings: [] };
+    return { company: '', companies: [], groups: [], ledgers: [], stockItems: [], stockGroups: [], units: [], voucherTypes: [], vouchers: [], others: {}, warnings: [] };
   }
 
   function parseEntry(e) {
@@ -339,6 +339,7 @@
       case 'COMPANY': {
         var cn = masterName(node);
         if (cn && !out.company) out.company = cn;
+        if (cn) out.companies.push({ name: cn, startingFrom: dateNum(text(node, 'STARTINGFROM')), booksFrom: dateNum(text(node, 'BOOKSFROM')) });
         break;
       }
       case 'GROUP':
@@ -404,6 +405,7 @@
     out.vouchers.forEach(function (v) { if (!v.date) noDate++; });
     if (noDate) out.warnings.push(noDate + ' voucher(s) had no readable date and were skipped.');
     out.vouchers = out.vouchers.filter(function (v) { return v.date > 0; });
+    if (!out.vouchers.length && !out.ledgers.length && !out.groups.length && !out.companies.length) out.preview = text.slice(0, 400).replace(/\s+/g, ' ').trim();
     return out;
   }
 

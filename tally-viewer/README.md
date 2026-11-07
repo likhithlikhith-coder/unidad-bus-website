@@ -12,7 +12,33 @@ undocumented format. No outside app can read them. TallyPrime's XML export,
 however, contains every master and every voucher and is two key presses per
 company, so that is what this app reads.
 
-## Exporting from TallyPrime
+## Getting data in
+
+### Option A: sync over Wi-Fi (Android app)
+
+TallyPrime runs an XML server on port 9000 while it is open. The Android app
+can ask it directly for all masters and all vouchers, so no files are involved:
+
+1. In TallyPrime: `F1` (Help) → Settings → Connectivity → Client/Server
+   configuration. Set *TallyPrime acts as* to **Both**, *Enable ODBC server*
+   **Yes**, port **9000**.
+2. Allow TallyPrime (or TCP port 9000) through Windows Firewall for private
+   networks.
+3. Note the PC's IPv4 address (`ipconfig`), open the companies in Tally, and on
+   the phone open **Sync from Tally**, enter the address, Connect, pick
+   companies and a period, Sync. Vouchers are fetched one month at a time so a
+   full year shows progress as it goes.
+
+Nothing is installed on the PC and the phone never talks to anything but the
+address you type. The sync feature needs the Android app because browsers block
+plain-HTTP requests from an HTTPS page.
+
+### Option B: XML files
+
+`tools/tally-export.cmd` (Windows) does the same requests from the PC itself and
+writes `<Company>-Master.xml` and `<Company>-Daybook.xml` to a folder on the
+Desktop; send those to the phone and import them. Or export by hand:
+
 
 1. **Masters** – Gateway of Tally → `Alt+E` → *Masters* → Configure: Format **XML**,
    Type **All Masters** → Export. Produces `Master.xml`.

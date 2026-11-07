@@ -3,10 +3,17 @@
 Native Android shell around the web app in `../tally-viewer`. It is a single
 `WebView` that serves the bundled web files through `WebViewAssetLoader` on a
 secure origin (`https://appassets.androidplatform.net`), so IndexedDB, Web
-Workers and the service worker behave exactly as in Chrome. The app requests
-**no permissions** and has no `INTERNET` permission: nothing can leave the phone.
+Workers and the service worker behave exactly as in Chrome. The only
+permission is `INTERNET`, used solely by the Sync screen to reach TallyPrime's
+XML server at the address you type on your own Wi-Fi; the app has no server of
+its own and contacts nothing else.
 
 The ready-to-install APK is in `../releases/`.
+
+`MainActivity` also exposes `window.TallyBridge` to the page: it POSTs an XML
+request to the PC, writes the reply to the app cache, and the page reads it back
+through the asset loader, so large exports never pass through a JavaScript
+string.
 
 ## Install on a phone
 

@@ -105,7 +105,7 @@
     ['more', 'More', '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>']
   ];
   function renderNav(r) {
-    var cur = r.name === 'ledger' ? 'ledgers' : r.name === 'voucher' ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : (r.name === 'companies' || r.name === 'import' || r.name === 'help') ? 'more' : r.name;
+    var cur = r.name === 'ledger' ? 'ledgers' : r.name === 'voucher' ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : (r.name === 'companies' || r.name === 'import' || r.name === 'help' || r.name === 'sync') ? 'more' : r.name;
     $nav.innerHTML = NAV.map(function (n) { return '<button data-go="' + n[0] + '" class="' + (cur === n[0] ? 'on' : '') + '">' + n[2] + '<span>' + n[1] + '</span></button>'; }).join('');
   }
 
@@ -125,14 +125,22 @@
           (S.company && S.company.id === c.id ? '<span class="badge">Open</span>' : '') + '<span class="chev">›</span></button>';
       }).join('') + '</div>';
     }
-    h += '<div class="btn-row"><button class="btn primary block" data-go="import">＋ Import Tally XML</button></div>';
-    h += '<div class="btn-row"><button class="btn block" data-go="help">How to export from TallyPrime</button></div>';
+    h += '<div class="btn-row"><button class="btn primary block" data-go="sync">⟳ Sync from Tally over Wi-Fi</button></div>';
+    h += '<div class="btn-row"><button class="btn block" data-go="import">＋ Import Tally XML files</button></div>';
+    h += '<div class="btn-row"><button class="btn block" data-go="help">Setup guide</button></div>';
     $view.innerHTML = h;
   };
 
   SCREENS.help = function () {
-    topbar({ title: 'Export from TallyPrime', back: true, period: false });
+    topbar({ title: 'Setup guide', back: true, period: false });
     $view.innerHTML =
+      '<div class="card"><h2>Option A · Sync over Wi-Fi (Android app)</h2><ol class="steps">' +
+      '<li>In TallyPrime press <kbd>F1</kbd> (Help) → <b>Settings</b> → <b>Connectivity</b> → <b>Client/Server configuration</b>. Set <b>TallyPrime acts as</b> to <b>Both</b> (or Server), <b>Enable ODBC server</b> Yes, port <b>9000</b>. Restart Tally if asked.</li>' +
+      '<li>Allow it through Windows Firewall: Start → "Allow an app through Windows Firewall" → tick TallyPrime for Private networks. If Tally is not listed, add an inbound rule for TCP port 9000.</li>' +
+      '<li>Find the PC\'s address: Start → type <kbd>cmd</kbd> → run <kbd>ipconfig</kbd> and note the IPv4 Address (e.g. 192.168.1.10).</li>' +
+      '<li>Open the companies you want in Tally. On the phone (same Wi-Fi) open <b>Sync from Tally</b>, enter the address, Connect, pick companies and period, Sync.</li></ol>' +
+      '<p class="small muted">Nothing is installed on the PC. The phone sends Tally the same export requests the Export menu uses and reads the replies.</p></div>' +
+      '<div class="section-title">Option B · XML files</div>' +
       '<div class="card"><h2>1. Masters (ledgers, groups, items)</h2><ol class="steps">' +
       '<li>Open the company in TallyPrime and go to the Gateway of Tally.</li>' +
       '<li>Press <kbd>Alt</kbd>+<kbd>E</kbd> (Export) and choose <b>Masters</b>.</li>' +
@@ -146,7 +154,8 @@
       '<div class="card"><h2>3. Copy to phone and import</h2><ol class="steps">' +
       '<li>Send both files to the phone (WhatsApp, Google Drive, email, USB cable).</li>' +
       '<li>In this app tap <b>Import Tally XML</b>, pick the files (both at once is fine) and save.</li>' +
-      '<li>Re-export and re-import any time. Vouchers are matched by their Tally GUID, so importing the same period again updates rather than duplicates.</li></ol></div>' +
+      '<li>Re-export and re-import any time. Vouchers are matched by their Tally GUID, so importing the same period again updates rather than duplicates.</li></ol>' +
+      '<p class="small muted">Prefer one click? The repository ships <b>tools/tally-export.cmd</b> for the PC: double-click it while Tally is open and it writes Master and Daybook XML for every open company into a folder.</p></div>' +
       '<div class="card"><h2>Notes</h2><p class="small muted">A TallyPrime backup (.900 data folder or TBK file) cannot be read by any outside app, which is why XML export is used. Reports here are computed from the ledgers and vouchers you import; profit figures exclude stock valuation, so they may differ from Tally where closing stock is material.</p></div>';
   };
 
@@ -160,7 +169,8 @@
       '<label class="file-drop"><input type="file" id="imp-files" multiple><div style="font-size:30px">📂</div><div><b>Choose XML file(s)</b></div><div class="small">Master.xml, Daybook.xml or any TallyPrime XML export</div></label>' +
       '<div id="imp-jobs"></div>' +
       '<div class="btn-row"><button class="btn primary block hidden" id="imp-save">Save to company</button></div></div>' +
-      '<p class="small muted">Files are parsed on this phone and never uploaded anywhere. Large day books (50–100 MB) can take a minute.</p>';
+      '<p class="small muted">Files are parsed on this phone and never uploaded anywhere. Large day books (50–100 MB) can take a minute.</p>' +
+      '<div class="btn-row"><button class="btn block" data-go="sync">Or sync directly from Tally over Wi-Fi</button></div>';
     $view.innerHTML = h;
     S.jobs = [];
     document.getElementById('imp-target').onchange = function () { document.getElementById('imp-newname-wrap').classList.toggle('hidden', this.value !== 'new'); };
@@ -168,76 +178,47 @@
     document.getElementById('imp-save').onclick = saveJobs;
   };
 
+  /* ---- parsing in the worker --------------------------------------------- */
+  var pendingParse = {};
   function getWorker() {
     if (worker) return worker;
     worker = new Worker('js/parser.worker.js');
     worker.onmessage = function (ev) {
-      var m = ev.data, job = null;
-      for (var i = 0; i < S.jobs.length; i++) if (S.jobs[i].id === m.id) job = S.jobs[i];
-      if (!job) return;
-      if (m.type === 'progress') { job.progress = m.pos / Math.max(1, m.total); updateJob(job); }
-      else if (m.type === 'done') { job.result = m.result; job.state = 'done'; job.progress = 1; updateJob(job); nextJob(); }
-      else if (m.type === 'error') { job.state = 'error'; job.error = m.error; updateJob(job); nextJob(); }
+      var m = ev.data, p = pendingParse[m.id];
+      if (!p) return;
+      if (m.type === 'progress') { if (p.onProgress) p.onProgress(m.pos / Math.max(1, m.total)); }
+      else if (m.type === 'done') { delete pendingParse[m.id]; p.resolve(m.result); }
+      else if (m.type === 'error') { delete pendingParse[m.id]; p.reject(new Error(m.error)); }
     };
     worker.onerror = function (e) { toast('Parser error: ' + e.message); };
     return worker;
   }
-  function queueFiles(files) {
-    var box = document.getElementById('imp-jobs');
-    Array.prototype.forEach.call(files, function (f) {
-      var job = { id: 'j' + Date.now() + Math.random().toString(36).slice(2, 6), file: f, state: 'queued', progress: 0, result: null };
-      S.jobs.push(job);
-      var el = document.createElement('div'); el.className = 'kv-job'; el.id = job.id; box.appendChild(el);
-      updateJob(job);
+  function parseInWorker(buffer, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      pendingParse[id] = { resolve: resolve, reject: reject, onProgress: onProgress };
+      getWorker().postMessage({ id: id, buffer: buffer }, [buffer]);
     });
-    nextJob();
   }
-  function nextJob() {
-    var running = S.jobs.some(function (j) { return j.state === 'running'; });
-    if (running) return;
-    var job = null;
-    for (var i = 0; i < S.jobs.length; i++) if (S.jobs[i].state === 'queued') { job = S.jobs[i]; break; }
-    if (!job) { var btn = document.getElementById('imp-save'); if (btn) btn.classList.toggle('hidden', !S.jobs.some(function (j) { return j.state === 'done'; })); return; }
-    job.state = 'running'; updateJob(job);
-    job.file.arrayBuffer().then(function (buf) { getWorker().postMessage({ id: job.id, buffer: buf }, [buf]); })
-      .catch(function (e) { job.state = 'error'; job.error = String(e); updateJob(job); nextJob(); });
+  function describeResult(r) {
+    return [r.vouchers.length && pluralize(r.vouchers.length, 'voucher'), r.ledgers.length && pluralize(r.ledgers.length, 'ledger'), r.groups.length && pluralize(r.groups.length, 'group'), r.stockItems.length && pluralize(r.stockItems.length, 'stock item')].filter(Boolean).join(', ');
   }
-  function updateJob(job) {
-    var el = document.getElementById(job.id); if (!el) return;
-    var r = job.result, s;
-    if (job.state === 'done') {
-      s = (r.company ? '<b>' + esc(r.company) + '</b> · ' : '') + [r.vouchers.length && pluralize(r.vouchers.length, 'voucher'), r.ledgers.length && pluralize(r.ledgers.length, 'ledger'), r.groups.length && pluralize(r.groups.length, 'group'), r.stockItems.length && pluralize(r.stockItems.length, 'stock item')].filter(Boolean).join(', ');
-      if (!r.vouchers.length && !r.ledgers.length && !r.groups.length) s += '<span class="dr">Nothing recognised in this file. Is it a TallyPrime XML export?</span>';
-      if (r.warnings.length) s += '<div class="dr small">' + r.warnings.map(esc).join('<br>') + '</div>';
-    } else if (job.state === 'error') s = '<span class="dr">Failed: ' + esc(job.error) + '</span>';
-    else s = job.state === 'running' ? 'Parsing… ' + Math.round(job.progress * 100) + '%' : 'Waiting';
-    el.innerHTML = '<div class="kv" style="display:block"><div><b>' + esc(job.file.name) + '</b> <span class="faint small">' + (job.file.size / 1048576).toFixed(1) + ' MB</span></div><div class="small muted">' + s + '</div><div class="progress"><div style="width:' + Math.round(job.progress * 100) + '%"></div></div></div>';
+
+  /* ---- storing parsed results into companies ---------------------------- */
+  function findCompanyByName(name) {
+    var n = (name || '').trim().toLowerCase();
+    return S.companies.filter(function (c) { return c.name.toLowerCase() === n; })[0] || null;
   }
-  function saveJobs() {
-    var target = document.getElementById('imp-target').value, newName = (document.getElementById('imp-newname').value || '').trim();
-    var btn = document.getElementById('imp-save'); btn.disabled = true; btn.textContent = 'Saving…';
-    var done = S.jobs.filter(function (j) { return j.state === 'done'; });
-    if (target === 'new' && !newName) { newName = done.map(function (j) { return j.result.company; }).filter(Boolean)[0] || done[0].file.name.replace(/\.xml$/i, ''); }
-    // group jobs by target company
-    var buckets = {}, order = [];
-    done.forEach(function (j) {
-      var key, name;
-      if (target === 'auto') { name = j.result.company || ''; var ex = S.companies.filter(function (c) { return c.name.toLowerCase() === name.toLowerCase(); })[0]; key = ex ? ex.id : 'new:' + (name || j.file.name.replace(/\.xml$/i, '')); }
-      else if (target === 'new') key = 'new:' + newName;
-      else key = target;
-      if (!buckets[key]) { buckets[key] = []; order.push(key); }
-      buckets[key].push(j);
-    });
-    var lastId = null;
-    var chain = Promise.resolve();
-    order.forEach(function (key) {
+  // groups: [{ id: existing company id or null, name, items: [{ result, meta }] }] → Promise<last company id>
+  function storeResults(groups) {
+    var lastId = null, chain = Promise.resolve();
+    groups.forEach(function (g) {
       chain = chain.then(function () {
-        var company, created = false;
-        if (key.indexOf('new:') === 0) { company = { id: uid(), name: key.slice(4), createdAt: Date.now() }; created = true; }
-        else company = S.companies.filter(function (c) { return c.id === key; })[0];
+        var company = g.id ? S.companies.filter(function (c) { return c.id === g.id; })[0] : null, created = false;
+        if (!company) { company = { id: uid(), name: g.name, createdAt: Date.now() }; created = true; }
         return (created ? Promise.resolve(null) : TVDB.getData(company.id)).then(function (data) {
           data = data || TVModel.emptyData(company.id);
-          buckets[key].forEach(function (j) { TVModel.mergeImport(data, j.result, { name: j.file.name, bytes: j.file.size }); });
+          g.items.forEach(function (it) { TVModel.mergeImport(data, it.result, it.meta); });
           var book = new Book(data);
           company.updatedAt = Date.now();
           company.counts = { vouchers: data.vouchers.length, ledgers: Object.keys(data.ledgers).length, groups: Object.keys(data.groups).length, stockItems: Object.keys(data.stockItems).length };
@@ -249,11 +230,182 @@
         });
       });
     });
-    chain.then(function () { return TVDB.persist(); }).then(loadCompanies).then(function () {
-      S.jobs = [];
+    return chain.then(function () { return TVDB.persist(); }).then(loadCompanies).then(function () {
       if (lastId) { S.book = null; S.company = null; return selectCompany(lastId); }
-    }).then(function () { toast('Imported ' + pluralize(done.length, 'file')); go('#/home'); })
+    }).then(function () { return lastId; });
+  }
+
+  /* ---- file import jobs -------------------------------------------------- */
+  function queueFiles(files) {
+    var box = document.getElementById('imp-jobs');
+    Array.prototype.forEach.call(files, function (f) {
+      var job = { id: 'j' + Date.now() + Math.random().toString(36).slice(2, 6), file: f, state: 'queued', progress: 0, result: null };
+      S.jobs.push(job);
+      var el = document.createElement('div'); el.id = job.id; box.appendChild(el);
+      updateJob(job);
+    });
+    nextJob();
+  }
+  function nextJob() {
+    if (S.jobs.some(function (j) { return j.state === 'running'; })) return;
+    var job = S.jobs.filter(function (j) { return j.state === 'queued'; })[0];
+    if (!job) { var btn = document.getElementById('imp-save'); if (btn) btn.classList.toggle('hidden', !S.jobs.some(function (j) { return j.state === 'done'; })); return; }
+    job.state = 'running'; updateJob(job);
+    job.file.arrayBuffer()
+      .then(function (buf) { return parseInWorker(buf, function (p) { job.progress = p; updateJob(job); }); })
+      .then(function (r) { job.result = r; job.state = 'done'; job.progress = 1; }, function (e) { job.state = 'error'; job.error = String(e.message || e); })
+      .then(function () { updateJob(job); nextJob(); });
+  }
+  function updateJob(job) {
+    var el = document.getElementById(job.id); if (!el) return;
+    var r = job.result, s;
+    if (job.state === 'done') {
+      s = (r.company ? '<b>' + esc(r.company) + '</b> · ' : '') + describeResult(r);
+      if (!r.vouchers.length && !r.ledgers.length && !r.groups.length) s += '<span class="dr">Nothing recognised in this file. Is it a TallyPrime XML export?</span>';
+      if (r.warnings.length) s += '<div class="dr small">' + r.warnings.map(esc).join('<br>') + '</div>';
+    } else if (job.state === 'error') s = '<span class="dr">Failed: ' + esc(job.error) + '</span>';
+    else s = job.state === 'running' ? 'Parsing… ' + Math.round(job.progress * 100) + '%' : 'Waiting';
+    el.innerHTML = '<div class="kv" style="display:block"><div><b>' + esc(job.file.name) + '</b> <span class="faint small">' + (job.file.size / 1048576).toFixed(1) + ' MB</span></div><div class="small muted">' + s + '</div><div class="progress"><div style="width:' + Math.round(job.progress * 100) + '%"></div></div></div>';
+  }
+  function saveJobs() {
+    var target = document.getElementById('imp-target').value, newName = (document.getElementById('imp-newname').value || '').trim();
+    var btn = document.getElementById('imp-save'); btn.disabled = true; btn.textContent = 'Saving…';
+    var done = S.jobs.filter(function (j) { return j.state === 'done'; });
+    if (target === 'new' && !newName) newName = done.map(function (j) { return j.result.company; }).filter(Boolean)[0] || done[0].file.name.replace(/\.xml$/i, '');
+    var groups = [], byKey = {};
+    done.forEach(function (j) {
+      var key, g;
+      if (target === 'auto') { var nm = j.result.company || j.file.name.replace(/\.xml$/i, ''); var ex = findCompanyByName(nm); key = ex ? ex.id : 'new:' + nm.toLowerCase(); g = { id: ex ? ex.id : null, name: ex ? ex.name : nm }; }
+      else if (target === 'new') { key = 'new:' + newName.toLowerCase(); g = { id: null, name: newName }; }
+      else { key = target; g = { id: target, name: '' }; }
+      if (!byKey[key]) { byKey[key] = g; g.items = []; groups.push(g); }
+      byKey[key].items.push({ result: j.result, meta: { name: j.file.name, bytes: j.file.size } });
+    });
+    storeResults(groups).then(function () { S.jobs = []; toast('Imported ' + pluralize(done.length, 'file')); go('#/home'); })
       .catch(function (e) { toast('Save failed: ' + e.message, 5000); btn.disabled = false; btn.textContent = 'Save to company'; });
+  }
+
+  /* ---- sync from TallyPrime over Wi-Fi ----------------------------------- */
+  var bridgePending = {};
+  window.TallyBridgeDone = function (id, ok, result) {
+    var p = bridgePending[id]; if (!p) return; delete bridgePending[id];
+    if (!ok) { p.reject(new Error(result)); return; }
+    var url = /^(blob:|https?:)/.test(result) ? result : '/cache/' + result + '.xml';
+    fetch(url, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('Could not read Tally reply (' + r.status + ')'); return r.arrayBuffer(); })
+      .then(function (buf) { try { window.TallyBridge.discard(id); } catch (e) { /* ignore */ } p.resolve(buf); }, p.reject);
+  };
+  function hasBridge() { return !!(window.TallyBridge && typeof window.TallyBridge.request === 'function'); }
+  function tallyRequest(host, port, xml) {
+    return new Promise(function (resolve, reject) {
+      var id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      bridgePending[id] = { resolve: resolve, reject: reject };
+      window.TallyBridge.request(id, 'http://' + host + ':' + port + '/', xml);
+    });
+  }
+  function xmlEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  var TALLY_REQ = {
+    companies: function () {
+      return '<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>TVCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="TVCompanies" ISMODIFY="No"><TYPE>Company</TYPE><FETCH>NAME, STARTINGFROM, BOOKSFROM</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>';
+    },
+    masters: function (co) {
+      return '<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER><BODY><EXPORTDATA><REQUESTDESC><REPORTNAME>List of Accounts</REPORTNAME><STATICVARIABLES><SVCURRENTCOMPANY>' + xmlEsc(co) + '</SVCURRENTCOMPANY><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT><ACCOUNTTYPE>All Masters</ACCOUNTTYPE></STATICVARIABLES></REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>';
+    },
+    vouchers: function (co, from, to) {
+      return '<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER><BODY><EXPORTDATA><REQUESTDESC><REPORTNAME>Day Book</REPORTNAME><STATICVARIABLES><SVCURRENTCOMPANY>' + xmlEsc(co) + '</SVCURRENTCOMPANY><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT><SVFROMDATE TYPE="Date">' + from + '</SVFROMDATE><SVTODATE TYPE="Date">' + to + '</SVTODATE><EXPLODEFLAG>Yes</EXPLODEFLAG></STATICVARIABLES></REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>';
+    }
+  };
+  function monthRanges(from, to) {
+    var out = [], y = Math.floor(from / 10000), m = Math.floor(from / 100) % 100;
+    while (y * 10000 + m * 100 + 1 <= to) {
+      var last = new Date(y, m, 0).getDate();
+      var a = Math.max(from, y * 10000 + m * 100 + 1), b = Math.min(to, y * 10000 + m * 100 + last);
+      out.push([a, b]);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  }
+  function currentFY() { var n = new Date(), fy = (n.getMonth() + 1) >= 4 ? n.getFullYear() : n.getFullYear() - 1; return { from: fy * 10000 + 401, to: n.getFullYear() * 10000 + (n.getMonth() + 1) * 100 + n.getDate() }; }
+
+  SCREENS.sync = function () {
+    topbar({ title: 'Sync from Tally', sub: 'over Wi-Fi', back: true, period: false });
+    var saved = lsGet('tv.sync', { host: '', port: '9000' });
+    var h = '';
+    if (!hasBridge()) {
+      h += '<div class="notice">Direct sync needs the Tally Viewer Android app (APK). In a browser, use <a href="#/import">Import XML</a> instead, or run the one-click exporter on the PC.</div>';
+    }
+    h += '<div class="card"><h2>TallyPrime computer</h2><div class="field"><label>PC address on your Wi-Fi (IPv4)</label><input id="sync-host" inputmode="decimal" placeholder="192.168.1.10" value="' + esc(saved.host) + '"></div>' +
+      '<div class="field"><label>Port</label><input id="sync-port" inputmode="numeric" value="' + esc(saved.port) + '"></div>' +
+      '<button class="btn primary block" id="sync-connect"' + (hasBridge() ? '' : ' disabled') + '>Connect</button>' +
+      '<p class="small muted" style="margin-top:10px">Tally must be open on the PC with the companies loaded, and both devices on the same Wi-Fi. See <a href="#/help">setup</a> for the Tally and firewall settings.</p></div>' +
+      '<div id="sync-companies"></div><div id="sync-progress"></div>';
+    $view.innerHTML = h;
+    document.getElementById('sync-connect').onclick = syncConnect;
+  };
+  function syncConnect() {
+    var host = document.getElementById('sync-host').value.trim(), port = document.getElementById('sync-port').value.trim() || '9000';
+    if (!host) { toast('Enter the PC address'); return; }
+    lsSet('tv.sync', { host: host, port: port });
+    var btn = document.getElementById('sync-connect'); btn.disabled = true; btn.textContent = 'Connecting…';
+    var box = document.getElementById('sync-companies'); box.innerHTML = '';
+    tallyRequest(host, port, TALLY_REQ.companies()).then(function (buf) { return parseInWorker(buf); }).then(function (r) {
+      btn.disabled = false; btn.textContent = 'Connect';
+      if (!r.companies.length) { box.innerHTML = '<div class="notice">Tally answered but listed no open companies. Open the company in TallyPrime first.' + (r.preview ? '<div class="small" style="margin-top:6px">' + esc(r.preview) + '</div>' : '') + '</div>'; return; }
+      var fy = currentFY();
+      var h = '<div class="card"><h2>Companies open in Tally</h2>' + r.companies.map(function (c, i) {
+        return '<label class="kv" style="cursor:pointer"><span><input type="checkbox" class="sync-co" data-i="' + i + '" checked> ' + esc(c.name) + '</span><span class="small muted">books from ' + fmtDate(c.booksFrom || c.startingFrom) + '</span></label>';
+      }).join('') + '</div>';
+      h += '<div class="card"><h2>Vouchers to fetch</h2><div class="field"><label>From</label><input type="date" id="sync-from" value="' + toISO(fy.from) + '"></div><div class="field"><label>To</label><input type="date" id="sync-to" value="' + toISO(fy.to) + '"></div>' +
+        '<label class="kv" style="cursor:pointer"><span><input type="checkbox" id="sync-all"> Everything since books beginning</span><span></span></label>' +
+        '<label class="kv" style="cursor:pointer"><span><input type="checkbox" id="sync-masters" checked> Also fetch masters (ledgers, groups, items)</span><span></span></label>' +
+        '<button class="btn primary block" id="sync-run" style="margin-top:10px">Sync now</button></div>';
+      box.innerHTML = h;
+      document.getElementById('sync-run').onclick = function () { runSync(host, port, r.companies); };
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Connect';
+      box.innerHTML = '<div class="notice"><b>Could not reach Tally at ' + esc(host + ':' + port) + '.</b><br>' + esc(e.message) + '<br><span class="small">Check that TallyPrime is open, acting as a server on port ' + esc(port) + ', the Windows firewall allows it, and the phone is on the same Wi-Fi.</span></div>';
+    });
+  }
+  async function runSync(host, port, companies) {
+    var chosen = []; document.querySelectorAll('.sync-co:checked').forEach(function (cb) { chosen.push(companies[parseInt(cb.getAttribute('data-i'), 10)]); });
+    if (!chosen.length) { toast('Pick at least one company'); return; }
+    var all = document.getElementById('sync-all').checked, withMasters = document.getElementById('sync-masters').checked;
+    var from = fromISO(document.getElementById('sync-from').value), to = fromISO(document.getElementById('sync-to').value);
+    if (!all && (!from || !to || from > to)) { toast('Pick a valid from/to'); return; }
+    var run = document.getElementById('sync-run'); run.disabled = true; run.textContent = 'Syncing…';
+    var prog = document.getElementById('sync-progress'), lines = [], groups = [];
+    function log(msg, cls) { lines.push('<div class="kv' + (cls ? ' ' + cls : '') + '"><span>' + msg + '</span></div>'); prog.innerHTML = '<div class="card"><h2>Progress</h2>' + lines.slice(-12).join('') + '</div>'; }
+    function setLast(msg) { lines[lines.length - 1] = '<div class="kv"><span>' + msg + '</span></div>'; prog.innerHTML = '<div class="card"><h2>Progress</h2>' + lines.slice(-12).join('') + '</div>'; }
+    try {
+      for (var ci = 0; ci < chosen.length; ci++) {
+        var co = chosen[ci], ex = findCompanyByName(co.name), g = { id: ex ? ex.id : null, name: ex ? ex.name : co.name, items: [] };
+        var cFrom = all ? (co.booksFrom || co.startingFrom || from) : from, cTo = all ? (currentFY().to) : to;
+        if (withMasters) {
+          log('<b>' + esc(co.name) + '</b>: fetching masters…');
+          var mr = await parseInWorker(await tallyRequest(host, port, TALLY_REQ.masters(co.name)));
+          if (!mr.ledgers.length && !mr.groups.length) throw new Error('Tally returned no masters for ' + co.name + (mr.preview ? ': ' + mr.preview : ''));
+          setLast('<b>' + esc(co.name) + '</b>: masters – ' + describeResult(mr));
+          g.items.push({ result: mr, meta: { name: 'Tally sync masters', bytes: 0 } });
+        }
+        var months = monthRanges(cFrom, cTo), count = 0;
+        for (var mi = 0; mi < months.length; mi++) {
+          var rng = months[mi];
+          log('<b>' + esc(co.name) + '</b>: vouchers ' + fmtMonth(Math.floor(rng[0] / 100)) + ' (' + (mi + 1) + '/' + months.length + ')…');
+          var vr = await parseInWorker(await tallyRequest(host, port, TALLY_REQ.vouchers(co.name, rng[0], rng[1])));
+          if (mi === 0 && !vr.vouchers.length && vr.preview && /error|could not|invalid/i.test(vr.preview)) throw new Error('Tally said: ' + vr.preview);
+          count += vr.vouchers.length;
+          setLast('<b>' + esc(co.name) + '</b>: ' + fmtMonth(Math.floor(rng[0] / 100)) + ' – ' + pluralize(vr.vouchers.length, 'voucher') + ' (' + count + ' so far)');
+          if (vr.vouchers.length) g.items.push({ result: vr, meta: { name: 'Tally sync ' + fmtMonth(Math.floor(rng[0] / 100)), bytes: 0 } });
+        }
+        groups.push(g);
+      }
+      log('Saving…');
+      await storeResults(groups);
+      toast('Synced ' + pluralize(chosen.length, 'company'));
+      go('#/home');
+    } catch (e) {
+      log('<span class="dr">Failed: ' + esc(e.message) + '</span>');
+      run.disabled = false; run.textContent = 'Sync now';
+    }
   }
 
   /* ---- home --------------------------------------------------------------- */
@@ -593,7 +745,8 @@
       if (b.data.files.length) h += '<div class="card"><h2>Imported files</h2>' + b.data.files.slice().reverse().slice(0, 10).map(function (f) { return '<div class="kv"><span>' + esc(f.name) + '<div class="small faint">' + new Date(f.at).toLocaleString() + '</div></span><span class="small muted">' + [f.counts.vouchers.added + f.counts.vouchers.updated ? (f.counts.vouchers.added + f.counts.vouchers.updated) + ' vch' : '', f.counts.ledgers.added + f.counts.ledgers.updated ? (f.counts.ledgers.added + f.counts.ledgers.updated) + ' ledgers' : ''].filter(Boolean).join(', ') + '</span></div>'; }).join('') + '</div>';
     }
     h += '<div class="list"><button class="row" data-go="companies"><div class="main"><div class="t">Companies</div><div class="s">' + pluralize(S.companies.length, 'company') + ' on this phone</div></div><span class="chev">›</span></button>' +
-      '<button class="row" data-go="import"><div class="main"><div class="t">Import Tally XML</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-go="import"><div class="main"><div class="t">Import Tally XML files</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="help"><div class="main"><div class="t">How to export from TallyPrime</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-act="theme"><div class="main"><div class="t">Theme</div><div class="s">' + esc(lsGet('tv.theme', 'auto')) + '</div></div><span class="chev">›</span></button></div>';
     h += '<p class="small faint" style="text-align:center">Tally Viewer · offline · all data stays in this browser\'s storage<span id="storage"></span></p>';
