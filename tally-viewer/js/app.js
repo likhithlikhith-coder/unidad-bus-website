@@ -84,7 +84,9 @@
     }
     var fn = SCREENS[r.name] || SCREENS.home;
     window.scrollTo(0, 0);
+    $view.classList.remove('in');
     fn(r);
+    void $view.offsetWidth; $view.classList.add('in');
     renderNav(r);
   }
 
@@ -97,6 +99,21 @@
     h += '</div>' + (opts.extra || '');
     $top.innerHTML = h;
   }
+  var ICONS = {
+    profit: '<svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
+    sales: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>',
+    purchase: '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>',
+    receivable: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8h5M19.5 5.5v5"/></svg>',
+    payable: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M17 8h5"/></svg>',
+    cash: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg>',
+    bank: '<svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M10 10v8M14 10v8M19 10v8"/><path d="M3 20h18"/></svg>',
+    expense: '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M6 7l1.5 12h9L18 7"/><path d="M10 11v4M14 11v4"/></svg>',
+    vouchers: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>',
+    entry: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    ledger: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+    report: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+    export: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>'
+  };
   var NAV = [
     ['home', 'Home', '<svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z"/></svg>'],
     ['ledgers', 'Ledgers', '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5"/></svg>'],
@@ -119,7 +136,7 @@
       h += '<div class="empty"><div class="big">📒</div><p><b>No company data yet.</b></p><p class="small" style="margin-top:6px">Export your masters and vouchers from TallyPrime as XML, copy the files to this phone, then import them here. Everything stays on this device.</p></div>';
     } else {
       h += '<div class="list">' + S.companies.map(function (c) {
-        return '<button class="row" data-company="' + esc(c.id) + '"><div class="main"><div class="t">' + esc(c.name) + '</div><div class="s">' +
+        return '<button class="row" data-company="' + esc(c.id) + '"><span class="avatar">' + esc(c.name.replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).slice(0, 2).map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '#') + '</span><div class="main"><div class="t">' + esc(c.name) + '</div><div class="s">' +
           pluralize(c.counts ? c.counts.vouchers : 0, 'voucher') + ' · ' + pluralize(c.counts ? c.counts.ledgers : 0, 'ledger') +
           (c.minDate ? ' · ' + fmtDate(c.minDate) + ' – ' + fmtDate(c.maxDate) : '') + '</div></div>' +
           (S.company && S.company.id === c.id ? '<span class="badge">Open</span>' : '') + '<span class="chev">›</span></button>';
@@ -530,13 +547,22 @@
     if (!b.vouchers.length) h += '<div class="notice">No vouchers imported for this company yet. Import a Daybook.xml to see activity.</div>';
     else if (Object.keys(b.data.groups).length === 0) h += '<div class="notice">Masters not imported: ledgers can\'t be grouped, so balance sheet and P&amp;L will be incomplete. Import Master.xml too.</div>';
     var inPeriod = b.vouchersIn(p.from, p.to).length;
+    // previous period of the same length, one year earlier
+    var prev = b.summary(p.from - 10000, p.to - 10000), np = s.netProfit, pp = prev.netProfit;
+    var delta = (Math.abs(pp) > 0.005) ? Math.round((np - pp) / Math.abs(pp) * 100) : null;
+    var deltaText = delta === null ? '' : (pp < 0 && np >= 0) ? '▲ Back to profit' : (pp >= 0 && np < 0) ? '▼ Into loss' : (np >= pp ? '▲ ' : '▼ ') + Math.abs(delta) + '% vs last year';
+    var spark = sparkline(s.monthly.map(function (m) { return m.income - m.expenses; }));
+    h += '<div class="hero"><div class="hero-in"><div class="label">' + (np < 0 ? 'Net loss' : 'Net profit') + ' · ' + esc(p.label) + '</div>' +
+      '<div class="value num' + (np < 0 ? ' neg' : '') + '">' + esc(compact(Math.abs(np))) + '</div>' +
+      '<div class="meta"><span>Income ' + esc(compact(s.sales + s.directIncome + s.indirectIncome)) + ' · Expenses ' + esc(compact(s.expenses + s.purchases)) + '</span>' +
+      (deltaText ? '<span class="delta' + (np < pp ? ' down' : '') + '">' + deltaText + '</span>' : '') + '</div>' + spark + '</div></div>';
+    h += '<div class="quick"><button data-act="newentry"><span class="ico">' + ICONS.entry + '</span>New entry</button><button data-go="vouchers"><span class="ico">' + ICONS.vouchers + '</span>Day book</button><button data-go="ledgers"><span class="ico">' + ICONS.ledger + '</span>Ledgers</button><button data-go="reports"><span class="ico">' + ICONS.report + '</span>Reports</button></div>';
     h += '<div class="tiles">' +
-      tile('Net profit', compact(s.netProfit), s.netProfit < 0 ? 'loss, excl. stock valuation' : 'excl. stock valuation', 'hero wide') +
-      tile('Sales', compact(s.sales), 'for period') + tile('Purchases', compact(s.purchases), 'for period') +
-      tile('Receivables', compact(s.receivables), pluralize(s.debtors.filter(function (d) { return d.closing < 0; }).length, 'party')) +
-      tile('Payables', compact(s.payables), pluralize(s.creditors.filter(function (d) { return d.closing > 0; }).length, 'party')) +
-      tile('Cash in hand', compact(s.cash), 'as on ' + fmtDate(p.to)) + tile('Bank', compact(s.bank), s.bank < 0 ? 'overdrawn' : 'as on ' + fmtDate(p.to)) +
-      tile('Expenses', compact(s.expenses), 'direct + indirect') + tile('Vouchers', NF0.format(inPeriod), 'in period') +
+      tile('Sales', compact(s.sales), 'for period', '', ICONS.sales) + tile('Purchases', compact(s.purchases), 'for period', '', ICONS.purchase) +
+      tile('Receivables', compact(s.receivables), pluralize(s.debtors.filter(function (d) { return d.closing < 0; }).length, 'party'), '', ICONS.receivable) +
+      tile('Payables', compact(s.payables), pluralize(s.creditors.filter(function (d) { return d.closing > 0; }).length, 'party'), '', ICONS.payable) +
+      tile('Cash in hand', compact(s.cash), 'as on ' + fmtDate(p.to), '', ICONS.cash) + tile('Bank', compact(s.bank), s.bank < 0 ? 'overdrawn' : 'as on ' + fmtDate(p.to), '', ICONS.bank) +
+      tile('Expenses', compact(s.expenses), 'direct + indirect', '', ICONS.expense) + tile('Vouchers', NF0.format(inPeriod), 'in period', '', ICONS.vouchers) +
       '</div>';
     h += '<div class="card"><h2>Monthly sales vs purchases</h2>' + chart(s.monthly) + '</div>';
     var top = s.debtors.filter(function (d) { return d.closing < 0; }).slice(0, 5);
@@ -546,7 +572,21 @@
     $view.innerHTML = h;
     bindChart();
   };
-  function tile(label, value, sub, cls) { return '<div class="tile ' + (cls || '') + '"><div class="label">' + esc(label) + '</div><div class="value num">' + esc(value) + '</div>' + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>'; }
+  function tile(label, value, sub, cls, icon) { return '<div class="tile ' + (cls || '') + '">' + (icon ? '<div class="ico">' + icon + '</div>' : '') + '<div class="label">' + esc(label) + '</div><div class="value num">' + esc(value) + '</div>' + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>'; }
+  function sparkline(vals) {
+    if (vals.length < 2) return '';
+    var W = 300, H = 44, min = Math.min.apply(null, vals), max = Math.max.apply(null, vals), span = (max - min) || 1;
+    var pts = vals.map(function (v, i) { return [(i / (vals.length - 1)) * W, H - 4 - ((v - min) / span) * (H - 8)]; });
+    var d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      var c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6, c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += ' C' + c1x.toFixed(1) + ' ' + c1y.toFixed(1) + ' ' + c2x.toFixed(1) + ' ' + c2y.toFixed(1) + ' ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1);
+    }
+    var last = pts[pts.length - 1];
+    return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>' +
+      '<path d="' + d + ' L' + W + ' ' + H + ' L0 ' + H + ' Z" fill="url(#sg)"/><path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/><circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3" fill="var(--accent)"/></svg>';
+  }
 
   function chart(months) {
     if (!months.length) return '<p class="muted small">No activity in this period.</p>';
@@ -766,7 +806,7 @@
   function voucherRow(v) {
     var who = v.party || (v.entries[0] ? v.entries[0].ledger : '');
     var flag = (v.cancelled ? ' · cancelled' : v.optional ? ' · optional' : !v.affects ? ' · no effect' : '') + (v.source === 'app' ? (v.posted ? ' · app ✓' : ' · app, pending') : '');
-    return '<button class="row" data-voucher="' + v.idx + '"><span class="badge">' + esc(v.type) + '</span><div class="main"><div class="t">' + esc(who) + '</div><div class="s">' + fmtDate(v.date) + (v.number ? ' · #' + esc(v.number) : '') + flag + (v.narration ? ' · ' + esc(v.narration) : '') + '</div></div><div class="amt"><div class="v num">' + fmt(v.total) + '</div></div></button>';
+    return '<button class="row" data-voucher="' + v.idx + '"><span class="badge" data-base="' + esc(v.base || '') + '">' + esc(v.type) + '</span><div class="main"><div class="t">' + esc(who) + '</div><div class="s">' + fmtDate(v.date) + (v.number ? ' · #' + esc(v.number) : '') + flag + (v.narration ? ' · ' + esc(v.narration) : '') + '</div></div><div class="amt"><div class="v num">' + fmt(v.total) + '</div></div></button>';
   }
 
   SCREENS.voucher = function (r) {
@@ -820,7 +860,8 @@
   ];
   SCREENS.reports = function () {
     topbar({ title: 'Reports', sub: S.company.name });
-    $view.innerHTML = '<div class="list">' + REPORTS.map(function (r) { return '<a class="row" href="#/report/' + r[0] + '"><div class="main"><div class="t">' + r[1] + '</div><div class="s">' + r[2] + '</div></div><span class="chev">›</span></a>'; }).join('') + '</div>';
+    var RICON = { tb: 'ledger', pl: 'profit', bs: 'bank', receivables: 'receivable', payables: 'payable', cashbank: 'cash', stock: 'expense', monthly: 'report', register: 'vouchers' };
+    $view.innerHTML = '<div class="list">' + REPORTS.map(function (r) { return '<a class="row" href="#/report/' + r[0] + '"><span class="tile-ico ico" style="width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none">' + (ICONS[RICON[r[0]]] || '').replace('<svg', '<svg style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"') + '</span><div class="main"><div class="t">' + r[1] + '</div><div class="s">' + r[2] + '</div></div><span class="chev">›</span></a>'; }).join('') + '</div>';
   };
   SCREENS.report = function (r) {
     var fn = REPORT_FN[r.arg];
@@ -966,7 +1007,7 @@
       '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="import"><div class="main"><div class="t">Open Tally data folder / XML files</div><div class="s">Reads Manager.1800, TranMgr.1800, Company.1800 directly</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="help"><div class="main"><div class="t">How to export from TallyPrime</div></div><span class="chev">›</span></button>' +
-      '<button class="row" data-act="theme"><div class="main"><div class="t">Theme</div><div class="s">' + esc(lsGet('tv.theme', 'auto')) + '</div></div><span class="chev">›</span></button></div>';
+      '<button class="row" data-act="theme"><div class="main"><div class="t">Theme</div><div class="s">' + esc(lsGet('tv.theme', 'dark')) + '</div></div><span class="chev">›</span></button></div>';
     h += '<p class="small faint" style="text-align:center">Tally Viewer · offline · all data stays in this browser\'s storage<span id="storage"></span></p>';
     $view.innerHTML = h;
     TVDB.estimate().then(function (e) { if (e && e.usage) document.getElementById('storage').textContent = ' · ' + (e.usage / 1048576).toFixed(1) + ' MB used'; });
@@ -1009,17 +1050,18 @@
     });
   }
   function themeSheet() {
-    var cur = lsGet('tv.theme', 'auto');
-    sheet('<h3>Theme</h3>' + ['auto', 'light', 'dark'].map(function (t) { return '<button class="opt ' + (cur === t ? 'on' : '') + '" data-t="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>'; }).join(''), function (ev, bg) {
+    var cur = lsGet('tv.theme', 'dark');
+    sheet('<h3>Theme</h3>' + ['dark', 'light', 'auto'].map(function (t) { return '<button class="opt ' + (cur === t ? 'on' : '') + '" data-t="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>'; }).join(''), function (ev, bg) {
       var o = ev.target.closest('.opt'); if (!o) return;
       bg.remove(); lsSet('tv.theme', o.getAttribute('data-t')); applyTheme(); render();
     });
   }
   function applyTheme() {
-    var t = lsGet('tv.theme', 'auto');
-    if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+    var t = lsGet('tv.theme', 'dark');
+    if (t === 'auto') t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
     var meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.setAttribute('content', getComputedStyle(document.body).getPropertyValue('--surface').trim() || '#ffffff');
+    if (meta) meta.setAttribute('content', getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#07080B');
   }
 
   /* ---- global events ------------------------------------------------------ */
