@@ -220,3 +220,42 @@ kbd { background: var(--surface-3); border: 1px solid var(--border-strong); bord
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 0; }
 .chk input { width: auto; margin: 0; accent-color: var(--accent); }
+
+/* ---- actions bar (shared by ledgers, vouchers, reports) ---- */
+.actions { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 12px; margin: 0 -2px; scrollbar-width: none; }
+.actions .act { flex: none; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 999px; padding: 9px 14px 9px 10px; font-size: 13px; font-weight: 700; transition: transform .15s var(--press); white-space: nowrap; }
+.actions .act:active { transform: scale(.95); }
+.actions .act .ico { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.actions .act .ico svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.actions .act.wa .ico { background: rgba(37,211,102,.16); color: #25D366; }
+.actions .act.primary { background: linear-gradient(135deg, #F1D792, var(--accent) 40%, var(--accent-2)); color: var(--accent-ink); border-color: transparent; }
+.actions .act.primary .ico { background: rgba(0,0,0,.12); color: var(--accent-ink); }
+.actions .act.on .ico { background: var(--accent); color: var(--accent-ink); }
+
+/* ranked bars */
+.rank { display: grid; gap: 10px; }
+.rank .r { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.rank .r .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank .r .v { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rank .r .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.rank .r .bar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+
+/* segmented control */
+.seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 3px; gap: 2px; margin-bottom: 12px; }
+.seg button { border: 0; background: transparent; color: var(--text-2); padding: 7px 12px; border-radius: 9px; font-size: 13px; font-weight: 700; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+
+/* lock screen */
+.lock { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px; }
+.lock .logo { width: 64px; height: 64px; border-radius: 20px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; color: var(--accent-ink); font-weight: 800; font-size: 22px; box-shadow: var(--glow); }
+.lock h2 { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+.lock .dots { display: flex; gap: 12px; height: 16px; }
+.lock .dots i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border-strong); }
+.lock .dots i.on { background: var(--accent); border-color: var(--accent); }
+.lock .pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 12px; }
+.lock .pad button { height: 64px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); font-size: 22px; font-weight: 700; transition: transform .12s var(--press); }
+.lock .pad button:active { transform: scale(.92); background: var(--surface-3); }
+.lock .err { color: var(--dr); font-size: 13px; min-height: 18px; }
+.ico-btn { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface); display: grid; place-items: center; color: var(--text-2); }
+.ico-btn.on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.ico-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

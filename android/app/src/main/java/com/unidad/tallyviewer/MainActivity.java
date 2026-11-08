@@ -259,6 +259,65 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * Shares an export directly to an app (e.g. WhatsApp), optionally to one phone number.
+         * target: "whatsapp" or "" for the system chooser. Calls window.TallyBridgeSaved(name, ok, info).
+         */
+        @JavascriptInterface
+        public void shareFile(final String name, final String mime, final String b64, final String target, final String phone, final String text) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String safe = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+                    if (safe.isEmpty()) safe = "export";
+                    try {
+                        File dir = new File(getCacheDir(), "exports");
+                        dir.mkdirs();
+                        File f = new File(dir, safe);
+                        if (b64 != null && !b64.isEmpty()) {
+                            FileOutputStream fo = new FileOutputStream(f);
+                            fo.write(Base64.decode(b64, Base64.DEFAULT));
+                            fo.close();
+                        }
+                        final Uri share = (b64 != null && !b64.isEmpty()) ? FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".files", f) : null;
+                        final String fSafe = safe;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Intent send = new Intent(Intent.ACTION_SEND);
+                                send.setType(share != null ? mime : "text/plain");
+                                if (share != null) send.putExtra(Intent.EXTRA_STREAM, share);
+                                if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
+                                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                String pkg = null;
+                                if ("whatsapp".equals(target)) {
+                                    if (isInstalled("com.whatsapp")) pkg = "com.whatsapp";
+                                    else if (isInstalled("com.whatsapp.w4b")) pkg = "com.whatsapp.w4b";
+                                }
+                                if (pkg != null) {
+                                    send.setPackage(pkg);
+                                    String digits = phone == null ? "" : phone.replaceAll("[^0-9]", "");
+                                    if (digits.length() == 10) digits = "91" + digits;
+                                    if (digits.length() >= 11) send.putExtra("jid", digits + "@s.whatsapp.net");
+                                }
+                                String info = pkg != null ? "Opened " + (pkg.endsWith("w4b") ? "WhatsApp Business" : "WhatsApp") : "WhatsApp not installed - choose an app";
+                                webView.evaluateJavascript("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",true," + js(info) + ")", null);
+                                try { startActivity(pkg != null ? send : Intent.createChooser(send, "Share " + fSafe)); }
+                                catch (Exception e) { try { send.setPackage(null); startActivity(Intent.createChooser(send, "Share " + fSafe)); } catch (Exception ignored) { } }
+                            }
+                        });
+                    } catch (final Exception e) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                webView.evaluateJavascript("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",false," + js(e.getClass().getSimpleName() + ": " + e.getMessage()) + ")", null);
+                            }
+                        });
+                    }
+                }
+            }).start();
+        }
+
+        /**
          * Opens the system folder picker. The .1800 files Tally Viewer needs are copied to
          * cache/<id>-<name> and window.TallyBridgeFolder(id, ok, "name|name|...") is called.
          */
@@ -276,6 +335,10 @@ public class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    private boolean isInstalled(String pkg) {
+        try { getPackageManager().getPackageInfo(pkg, 0); return true; } catch (Exception e) { return false; }
     }
 
     private static String js(String s) {

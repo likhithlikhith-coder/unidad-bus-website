@@ -348,5 +348,5 @@
     };
   };
 
-  A.appVouchers = appVouchers; A.persistVoucher = persistVoucher; A.companySettings = companySettings;
+  A.appVouchers = appVouchers; A.persistVoucher = persistVoucher; A.companySettings = companySettings; A.einvoiceDoc = einvoiceDoc;
 })();

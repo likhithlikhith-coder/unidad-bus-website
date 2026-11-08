@@ -565,6 +565,7 @@
       tile('Expenses', compact(s.expenses), 'direct + indirect', '', ICONS.expense) + tile('Vouchers', NF0.format(inPeriod), 'in period', '', ICONS.vouchers) +
       '</div>';
     h += '<div class="card"><h2>Monthly sales vs purchases</h2>' + chart(s.monthly) + '</div>';
+    h += TVF.homeWidgets();
     var top = s.debtors.filter(function (d) { return d.closing < 0; }).slice(0, 5);
     if (top.length) h += '<div class="card" style="padding:0"><h2 style="padding:14px 14px 0"><a class="more" href="#/report/receivables">All ›</a>Top receivables</h2><div>' + top.map(function (d) { return ledgerRow(d.name, d.closing); }).join('') + '</div></div>';
     var recent = b.vouchersIn(p.from, p.to).slice(-5).reverse();
@@ -633,10 +634,12 @@
      .catch(function (e) { toast('Export failed: ' + e.message, 5000); });
   }
   function exportButtons(key) {
-    return '<div class="btn-row"><button class="btn" data-export="' + key + ':xlsx">⤓ Excel</button><button class="btn" data-export="' + key + ':pdf">⤓ PDF</button></div>';
+    return '<div class="actions"><button class="act" data-export="' + key + ':xlsx"><span class="ico">' + TVF_ICON('excel') + '</span>Excel</button><button class="act" data-export="' + key + ':pdf"><span class="ico">' + TVF_ICON('pdf') + '</span>PDF</button></div>';
   }
+  function TVF_ICON(k) { return k === 'excel' ? '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 9l8 8M16 9l-8 8"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 14h6M9 17h4"/></svg>'; }
   // Ledger statement: one ledger, all transactions in the period with running balance
-  function exportLedger(name, kind) {
+  function exportLedger(name, kind) { var e = buildLedgerExport(name, kind); afterSave(TVExport.save(e.name, e.blob)); }
+  function buildLedgerExport(name, kind) {
     var b = S.book, p = S.period, led = b.ledgers[name], st = b.ledgerStatement(name, p.from, p.to), bl = st.balance;
     var meta = ['Period: ' + periodLabel(), 'Group: ' + (led.chain.length ? led.chain.join(' > ') : 'Primary')];
     if (led.info && led.info.gstin) meta.push('GSTIN: ' + led.info.gstin);
@@ -654,7 +657,7 @@
         rows: [[fmtDate(p.from), 'Opening balance', '', '', null, null, Math.abs(bl.opening), drcr(bl.opening), '']].concat(rows.map(function (r) { return [r.date, r.part, r.type, r.no, r.dr || null, r.cr || null, Math.abs(r.bal), drcr(r.bal), r.narr]; })),
         totals: [['', 'Total', '', '', totalsDr, totalsCr, null, '', ''], [fmtDate(p.to), 'Closing balance', '', '', null, null, Math.abs(bl.closing), drcr(bl.closing), '']]
       };
-      afterSave(TVExport.save(exportName('xlsx', name), TVExport.xlsx([sheet])));
+      return { name: exportName('xlsx', name), blob: TVExport.xlsx([sheet]) };
     } else {
       var doc = {
         title: name, subtitle: S.company.name, meta: meta,
@@ -662,7 +665,7 @@
         rows: [[fmtDate(p.from), 'Opening balance', '', '', '', '', balText(bl.opening)]].concat(rows.map(function (r) { return [r.date, r.part, r.type, r.no, r.dr ? fmt(r.dr) : '', r.cr ? fmt(r.cr) : '', balText(r.bal)]; })),
         totals: [['', 'Total', '', '', fmt(totalsDr), fmt(totalsCr), ''], [fmtDate(p.to), 'Closing balance', '', '', '', '', balText(bl.closing)]]
       };
-      afterSave(TVExport.save(exportName('pdf', name), TVExport.pdf(doc)));
+      return { name: exportName('pdf', name), blob: TVExport.pdf(doc) };
     }
   }
   // Ledger balances: a list of ledgers with opening, movement and closing for the period
@@ -748,7 +751,8 @@
     topbar({ title: name, sub: led.chain.length ? led.chain.join(' › ') : (led.implicit ? 'Not in masters' : 'Primary'), back: true });
     var h = '<div class="tiles"><div class="tile"><div class="label">Opening</div><div class="value" style="font-size:16px">' + bal(bl.opening) + '</div></div><div class="tile"><div class="label">Closing</div><div class="value" style="font-size:16px">' + bal(bl.closing) + '</div></div>' +
       '<div class="tile"><div class="label">Debits</div><div class="value num" style="font-size:16px">' + fmt(bl.debit) + '</div></div><div class="tile"><div class="label">Credits</div><div class="value num" style="font-size:16px">' + fmt(bl.credit) + '</div></div></div>';
-    h += exportButtons('ledger/' + encodeURIComponent(name));
+    h += TVF.ledgerActions(name, led);
+    h += TVF.ledgerMonthlyCard(name);
     var contact = [];
     if (info.gstin) contact.push(['GSTIN', info.gstin]);
     if (info.phone) contact.push(['Phone', '<a href="tel:' + esc(info.phone) + '">' + esc(info.phone) + '</a>']);
@@ -820,8 +824,7 @@
     if (v.unbalanced) h += '<div class="notice" style="margin-top:10px">Entries do not balance by ' + fmt(v.unbalanced) + '. The export may be incomplete for this voucher.</div>';
     if (v.source === 'app') {
       h += '<div class="notice" style="margin-top:10px;background:var(--accent-soft);color:var(--text)">Entered in this app · ' + (v.posted ? 'sent to Tally' : 'not yet in Tally') + (v.invoice && v.invoice.irn ? ' · IRN ' + esc(v.invoice.irn.slice(0, 12)) + '…' : '') + '</div>';
-      h += '<div class="btn-row"><button class="btn" data-go="' + (v.invoice ? 'invoice?edit=' + encodeURIComponent(v.id) : 'entry?edit=' + encodeURIComponent(v.id)) + '">Edit</button><button class="btn" data-vact="xml">⤓ Tally XML</button><button class="btn" data-vact="post">⇡ Post to Tally</button>' +
-        (v.invoice ? '<button class="btn" data-vact="pdf">⤓ Invoice PDF</button><button class="btn" data-vact="einv">⤓ E-invoice JSON</button><button class="btn" data-vact="irn">IRN…</button>' : '') + '</div>';
+      h += TVF.voucherActions(v);
     }
     if (v.ref) h += '<div class="kv" style="margin-top:8px"><span class="muted">Reference</span><span>' + esc(v.ref) + '</span></div>';
     if (v.narration) h += '<div class="kv"><span class="muted">Narration</span><span>' + esc(v.narration) + '</span></div>';
@@ -860,15 +863,14 @@
   ];
   SCREENS.reports = function () {
     topbar({ title: 'Reports', sub: S.company.name });
-    var RICON = { tb: 'ledger', pl: 'profit', bs: 'bank', receivables: 'receivable', payables: 'payable', cashbank: 'cash', stock: 'expense', monthly: 'report', register: 'vouchers' };
-    $view.innerHTML = '<div class="list">' + REPORTS.map(function (r) { return '<a class="row" href="#/report/' + r[0] + '"><span class="tile-ico ico" style="width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none">' + (ICONS[RICON[r[0]]] || '').replace('<svg', '<svg style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"') + '</span><div class="main"><div class="t">' + r[1] + '</div><div class="s">' + r[2] + '</div></div><span class="chev">›</span></a>'; }).join('') + '</div>';
+    $view.innerHTML = TVF.reportSections();
   };
   SCREENS.report = function (r) {
     var fn = REPORT_FN[r.arg];
     if (!fn) { go('#/reports'); return; }
     var meta = REPORTS.filter(function (x) { return x[0] === r.arg; })[0];
     topbar({ title: meta[1], sub: fmtDate(S.period.from) + ' – ' + fmtDate(S.period.to), back: true });
-    $view.innerHTML = fn(S.book, S.period.from, S.period.to);
+    $view.innerHTML = TVF.reportActions(r.arg) + fn(S.book, S.period.from, S.period.to);
   };
   function groupNode(n, depth) {
     var h = '<details class="grp"' + (depth === 0 ? '' : '') + '><summary><span class="arrow">▶</span><span class="main">' + esc(n.name) + '</span><span class="amt">' + bal(n.closing) + '</span></summary><div class="inner">';
@@ -1002,6 +1004,7 @@
       if (b.data.files.length) h += '<div class="card"><h2>Imported files</h2>' + b.data.files.slice().reverse().slice(0, 10).map(function (f) { return '<div class="kv"><span>' + esc(f.name) + '<div class="small faint">' + new Date(f.at).toLocaleString() + '</div></span><span class="small muted">' + [f.counts.vouchers.added + f.counts.vouchers.updated ? (f.counts.vouchers.added + f.counts.vouchers.updated) + ' vch' : '', f.counts.ledgers.added + f.counts.ledgers.updated ? (f.counts.ledgers.added + f.counts.ledgers.updated) + ' ledgers' : ''].filter(Boolean).join(', ') + '</span></div>'; }).join('') + '</div>';
     }
     h += '<div class="list"><button class="row" data-go="companies"><div class="main"><div class="t">Companies</div><div class="s">' + pluralize(S.companies.length, 'company') + ' on this phone</div></div><span class="chev">›</span></button>' +
+      TVF.moreRows() +
       '<button class="row" data-go="pending"><div class="main"><div class="t">Entries made in app</div><div class="s">' + (b ? pluralize(b.vouchers.filter(function (v) { return v.source === 'app' && !v.posted; }).length, 'entry').replace('entrys', 'entries') + ' not yet in Tally' : '') + '</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="gst"><div class="main"><div class="t">Company GST details</div><div class="s">GSTIN, address and default ledgers for invoices and e-invoices</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
@@ -1093,12 +1096,13 @@
   window.addEventListener('hashchange', render);
 
   /* ---- bridge for entryui.js ---------------------------------------------- */
-  window.TVApp = { S: S, SCREENS: SCREENS, NEEDS_BOOK: NEEDS_BOOK, topbar: topbar, toast: toast, go: go, esc: esc, fmt: fmt, fmtDate: fmtDate, fmtDateLong: fmtDateLong, toISO: toISO, fromISO: fromISO, sheet: sheet, lsGet: lsGet, lsSet: lsSet, uid: uid, pluralize: pluralize, bal: bal, afterSave: afterSave, tallyRequest: tallyRequest, hasBridge: hasBridge, loadCompanies: loadCompanies, render: render, $view: function () { return $view; } };
+  window.TVApp = { S: S, SCREENS: SCREENS, NEEDS_BOOK: NEEDS_BOOK, REPORTS: REPORTS, REPORT_FN: REPORT_FN, ICONS: ICONS, topbar: topbar, toast: toast, go: go, esc: esc, fmt: fmt, fmtDate: fmtDate, fmtDateLong: fmtDateLong, fmtMonth: fmtMonth, toISO: toISO, fromISO: fromISO, sheet: sheet, lsGet: lsGet, lsSet: lsSet, uid: uid, pluralize: pluralize, bal: bal, drcr: drcr, compact: compact, periodLabel: periodLabel, exportName: exportName, ledgerRow: ledgerRow, voucherRow: voucherRow, buildLedgerExport: buildLedgerExport, afterSave: afterSave, tallyRequest: tallyRequest, hasBridge: hasBridge, loadCompanies: loadCompanies, selectCompany: selectCompany, render: render, $view: function () { return $view; } };
 
   /* ---- boot --------------------------------------------------------------- */
   function boot() {
     $view = document.getElementById('view'); $top = document.getElementById('top'); $nav = document.getElementById('nav');
     applyTheme();
+    if (window.TVF) TVF.showLock();
     loadCompanies().then(function () {
       if (!location.hash || location.hash === '#/' ) location.hash = S.companies.length ? '#/home' : '#/companies';
       render();

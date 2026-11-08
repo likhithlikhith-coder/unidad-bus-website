@@ -171,3 +171,48 @@
     return d.finish();
   };
 })(typeof self !== 'undefined' ? self : globalThis);
+
+/* ---- Ledger confirmation letter and reminder text ------------------------- */
+(function (root) {
+  'use strict';
+  var E = root.TVEntry;
+  function fmt(n) { return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0); }
+  function fdate(d) { var y = Math.floor(d / 10000), m = Math.floor(d / 100) % 100, dd = d % 100; return dd + '-' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1] + '-' + y; }
+  function balText(n) { return Math.abs(n) < 0.005 ? 'Nil' : 'Rs ' + fmt(Math.abs(n)) + (n < 0 ? ' Dr' : ' Cr'); }
+  // o: { company:{name,address,gstin,phone}, party:{name,address,gstin}, from, to, statement:{balance, rows}, kind:'debtor'|'creditor' }
+  E.confirmationPdf = function (o, TVExport) {
+    var d = new TVExport.PdfDoc({ footer: 'Generated ' + new Date().toLocaleString() + ' - Tally Viewer' }); d.newPage();
+    var M = d.M, W = d.W, y = d.y, c = o.company || {}, p = o.party || {}, bl = o.statement.balance;
+    d.text(M, y - 12, c.name || '', 13, true); y -= 16;
+    [c.address, c.gstin ? 'GSTIN: ' + c.gstin : '', c.phone ? 'Ph: ' + c.phone : ''].filter(Boolean).forEach(function (l) { d.text(M, y - 8, l, 8.5); y -= 11; });
+    y -= 6; d.line(M, y, W - M, y, 0.5, 0.6); y -= 16;
+    d.text(W - M, y, 'Date: ' + fdate(o.to), 9, false, 'r');
+    d.text(M, y, 'To,', 9); y -= 13;
+    d.text(M, y, p.name || '', 10, true); y -= 13;
+    [p.address, p.gstin ? 'GSTIN: ' + p.gstin : ''].filter(Boolean).forEach(function (l) { d.text(M, y, l, 8.5); y -= 11; });
+    y -= 8;
+    d.text(W / 2, y, 'CONFIRMATION OF ACCOUNT', 11, true, 'c'); y -= 18;
+    var owes = (o.kind === 'debtor' && bl.closing < 0) || (o.kind === 'creditor' && bl.closing > 0);
+    var intro = 'Dear Sir/Madam,\n\nWe give below the statement of your account in our books for the period ' + fdate(o.from) + ' to ' + fdate(o.to) + '. The closing balance as per our books is ' + balText(bl.closing) + (owes ? (o.kind === 'debtor' ? ' (receivable by us)' : ' (payable by us)') : '') + '. Kindly confirm the balance, or let us know of any discrepancy within 15 days, failing which the balance will be treated as confirmed.';
+    intro.split('\n').forEach(function (para) { if (!para) { y -= 6; return; } y -= d.para(M, y, para, 9, false, W - 2 * M); });
+    y -= 12; d.y = y;
+    var cols = [{ title: 'Date', width: 60, align: 'l' }, { title: 'Particulars', width: 200, align: 'l' }, { title: 'Vch No', width: 60, align: 'l' }, { title: 'Debit', width: 80, align: 'r' }, { title: 'Credit', width: 80, align: 'r' }, { title: 'Balance', width: 95, align: 'r' }];
+    var rows = [[fdate(o.from), 'Opening balance', '', '', '', balText(bl.opening)]].concat(o.statement.rows.map(function (x) { var v = x.voucher; return [fdate(x.date), (x.others.length ? x.others.join(', ') : v.type), v.number || '', x.amount < 0 ? fmt(-x.amount) : '', x.amount > 0 ? fmt(x.amount) : '', balText(x.balance)]; }));
+    d.table(cols, rows, [['', 'Closing balance', '', fmt(bl.debit), fmt(bl.credit), balText(bl.closing)]], { fontSize: 8, onNewPage: function (dd) { dd.text(M, dd.y - 8, (c.name || '') + ' - Confirmation of account - ' + (p.name || ''), 8); dd.y -= 14; } });
+    y = d.y - 30;
+    if (y < M + 90) { d.newPage(); y = d.y - 20; }
+    d.text(M, y, 'For ' + (c.name || ''), 9, true); d.text(W - M, y, 'Confirmed by ' + (p.name || ''), 9, true, 'r'); y -= 34;
+    d.text(M, y, 'Authorised Signatory', 8.5); d.text(W - M, y, 'Authorised Signatory / Seal', 8.5, false, 'r');
+    return d.finish();
+  };
+  // Short WhatsApp-ready texts
+  E.ledgerSummaryText = function (o) {
+    var bl = o.statement.balance;
+    return 'Statement of account: ' + o.party.name + '\n' + o.company.name + '\nPeriod: ' + fdate(o.from) + ' to ' + fdate(o.to) +
+      '\nOpening: ' + balText(bl.opening) + '\nDebits: Rs ' + fmt(bl.debit) + '\nCredits: Rs ' + fmt(bl.credit) + '\nClosing: ' + balText(bl.closing) + '\n' + o.statement.rows.length + ' transactions. Detailed statement attached.';
+  };
+  E.reminderText = function (o) {
+    var bl = o.statement.balance, due = Math.abs(bl.closing);
+    return 'Dear ' + o.party.name + ',\n\nThis is a gentle reminder that an amount of Rs ' + fmt(due) + ' is outstanding in your account with ' + o.company.name + ' as on ' + fdate(o.to) + '. Kindly arrange the payment at the earliest and share the details.\n\nThank you,\n' + o.company.name + (o.company.phone ? '\n' + o.company.phone : '');
+  };
+})(typeof self !== 'undefined' ? self : globalThis);

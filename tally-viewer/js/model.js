@@ -381,16 +381,161 @@
     return { balance: b, rows: rows };
   };
 
-  // Next voucher number for a type (numeric part of the highest existing number + 1)
+  // Next voucher number for a type: keeps the prefix and zero padding of the highest number seen
   Book.prototype.nextNumber = function (type) {
-    var max = 0;
+    var max = -1, prefix = '', width = 0;
     for (var i = 0; i < this.vouchers.length; i++) {
       var v = this.vouchers[i];
       if (v.type !== type) continue;
-      var m = /(\d+)\s*$/.exec(String(v.number || ''));
-      if (m && +m[1] > max) max = +m[1];
+      var m = /^(.*?)(\d+)\s*$/.exec(String(v.number || ''));
+      if (m && +m[2] > max) { max = +m[2]; prefix = m[1]; width = m[2].length; }
     }
-    return max + 1;
+    var n = String(max + 1);
+    while (n.length < width && /^0/.test(String(max).padStart(width, '0'))) n = '0' + n;
+    return prefix + n;
+  };
+
+  // Month-wise summary of one ledger
+  Book.prototype.ledgerMonthly = function (name, from, to) {
+    var ent = this.ledgerEntries[name] || [], led = this.ledgers[name], run = led ? led.opening : 0, months = {}, order = [];
+    for (var i = 0; i < ent.length; i++) {
+      var e = ent[i];
+      if (e.d < from) { run += e.a; continue; }
+      if (e.d > to) break;
+      var mk = Math.floor(e.d / 100), m = months[mk];
+      if (!m) { m = months[mk] = { month: mk, debit: 0, credit: 0, closing: 0 }; order.push(mk); }
+      if (e.a < 0) m.debit += -e.a; else m.credit += e.a;
+      run += e.a; m.closing = run;
+    }
+    return { opening: led ? this.ledgerBalance(name, from, to).opening : 0, months: order.map(function (k) { return months[k]; }) };
+  };
+
+  // FIFO bill-wise outstanding for a party as on a date. side: 'debtor' (Dr increases) or 'creditor'.
+  Book.prototype.ageing = function (name, asOn, side) {
+    var ent = this.ledgerEntries[name] || [], led = this.ledgers[name], open = [], unapplied = 0;
+    var sign = side === 'creditor' ? 1 : -1; // amounts that raise the outstanding
+    var opening = led ? led.opening : 0;
+    if (opening * sign > 0.005) open.push({ date: this.minDate || asOn, voucher: null, amount: Math.abs(opening), balance: Math.abs(opening) });
+    else if (Math.abs(opening) > 0.005) unapplied += Math.abs(opening);
+    for (var i = 0; i < ent.length; i++) {
+      var e = ent[i];
+      if (e.d > asOn) break;
+      var amt = e.a * sign;
+      if (amt > 0.005) open.push({ date: e.d, voucher: this.vouchers[e.v], amount: amt, balance: amt });
+      else if (amt < -0.005) {
+        var pay = -amt + unapplied; unapplied = 0;
+        for (var k = 0; k < open.length && pay > 0.005; k++) { if (open[k].balance <= 0.005) continue; var use = Math.min(open[k].balance, pay); open[k].balance -= use; pay -= use; }
+        if (pay > 0.005) unapplied += pay;
+      }
+    }
+    if (unapplied > 0.005) { for (var j = 0; j < open.length && unapplied > 0.005; j++) { if (open[j].balance <= 0.005) continue; var u = Math.min(open[j].balance, unapplied); open[j].balance -= u; unapplied -= u; } }
+    var bills = open.filter(function (b) { return b.balance > 0.005; }), total = 0;
+    bills.forEach(function (b) { b.days = daysBetween(b.date, asOn); total += b.balance; });
+    return { bills: bills, total: total, advance: unapplied };
+  };
+  function toDateObj(d) { return new Date(Date.UTC(Math.floor(d / 10000), Math.floor(d / 100) % 100 - 1, d % 100)); }
+  function daysBetween(a, b) { return Math.round((toDateObj(b) - toDateObj(a)) / 86400000); }
+  var AGE_BUCKETS = [[0, 30], [31, 60], [61, 90], [91, 180], [181, 99999]];
+  Book.prototype.ageingReport = function (asOn, side) {
+    var self = this, group = side === 'creditor' ? 'Sundry Creditors' : 'Sundry Debtors', rows = [], totals = [0, 0, 0, 0, 0], grand = 0;
+    this.ledgerNames.forEach(function (n) {
+      var led = self.ledgers[n];
+      if (led.chain.indexOf(group) === -1) return;
+      var a = self.ageing(n, asOn, side);
+      if (a.total < 0.005) return;
+      var b = [0, 0, 0, 0, 0];
+      a.bills.forEach(function (x) { for (var i = 0; i < AGE_BUCKETS.length; i++) if (x.days <= AGE_BUCKETS[i][1]) { b[i] += x.balance; break; } });
+      for (var i = 0; i < 5; i++) totals[i] += b[i];
+      grand += a.total;
+      rows.push({ name: n, buckets: b, total: a.total, bills: a.bills.length, oldest: a.bills.length ? Math.max.apply(null, a.bills.map(function (x) { return x.days; })) : 0 });
+    });
+    rows.sort(function (a, b) { return b.total - a.total; });
+    return { rows: rows, totals: totals, grand: grand, buckets: AGE_BUCKETS };
+  };
+
+  // Key financial ratios for the period (movement) and as on its end (balances)
+  Book.prototype.ratios = function (from, to) {
+    var t = this.tree(from, to), s = this.summary(from, to);
+    function g(name) { return t.byName[name] ? t.byName[name].closing : 0; }
+    var ca = -g('Current Assets'), cl = g('Current Liabilities'), stock = -g('Stock-in-Hand'), loans = g('Loans (Liability)');
+    var plLedger = 0; t.primaryLedgers.forEach(function (l) { if (l.nature === 'P') plLedger += l.closing; });
+    var revenue = 0; t.roots.forEach(function (n) { if (n.nature === 'I' || n.nature === 'E') revenue += n.closing; });
+    var equity = g('Capital Account') + plLedger + revenue;
+    var days = Math.max(1, daysBetween(from, to) + 1);
+    var debtors = -g('Sundry Debtors'), creditors = g('Sundry Creditors');
+    var pct = function (a, b) { return Math.abs(b) > 0.005 ? a / b * 100 : null; }, ratio = function (a, b) { return Math.abs(b) > 0.005 ? a / b : null; };
+    return {
+      workingCapital: ca - cl, currentRatio: ratio(ca, cl), quickRatio: ratio(ca - stock, cl), debtEquity: ratio(loans, equity),
+      grossProfitPct: pct(s.grossProfit, s.sales), netProfitPct: pct(s.netProfit, s.sales), returnOnEquityPct: pct(s.netProfit, equity),
+      receivableDays: s.sales > 0.005 ? debtors / s.sales * days : null, payableDays: s.purchases > 0.005 ? creditors / s.purchases * days : null,
+      cashBank: s.cash + s.bank, equity: equity, loans: loans, currentAssets: ca, currentLiabilities: cl, sales: s.sales, purchases: s.purchases, netProfit: s.netProfit, grossProfit: s.grossProfit, days: days
+    };
+  };
+
+  // GST summary: output vs input tax by month and B2B outward supplies by party
+  Book.prototype.gstSummary = function (from, to) {
+    var self = this, months = {}, order = [], parties = {}, porder = [], isTax = {}, kind = {};
+    this.ledgerNames.forEach(function (n) {
+      var led = self.ledgers[n];
+      if (led.chain.indexOf('Duties & Taxes') === -1 && !/gst|cess/i.test(n)) return;
+      if (!/(cgst|sgst|utgst|igst|cess|gst)/i.test(n) || /payable|deposit|paid|refund|tds|tcs|interest|late/i.test(n)) return;
+      isTax[n] = true; kind[n] = /input|purch|itc/i.test(n) ? 'input' : 'output';
+    });
+    for (var i = 0; i < this.vouchers.length; i++) {
+      var v = this.vouchers[i];
+      if (!v.affects || v.date < from || v.date > to) continue;
+      var mk = Math.floor(v.date / 100), m = months[mk];
+      if (!m) { m = months[mk] = { month: mk, outward: 0, outputTax: 0, inward: 0, inputTax: 0 }; order.push(mk); }
+      var taxable = 0, tax = 0, isSale = v.base === 'Sales' || v.base === 'Credit Note', isPurchase = v.base === 'Purchase' || v.base === 'Debit Note';
+      if (!isSale && !isPurchase) continue; // GST figures come from supply vouchers only; adjustment journals are not counted
+      for (var k = 0; k < v.entries.length; k++) {
+        var e = v.entries[k], led = self.ledgers[e.ledger];
+        if (!led) continue;
+        if (isTax[e.ledger]) { if (isSale) m.outputTax += e.amount; else m.inputTax += -e.amount; tax += e.amount; }
+        else if (led.root === 'Sales Accounts') { m.outward += e.amount; taxable += e.amount; }
+        else if (led.root === 'Purchase Accounts') m.inward += -e.amount;
+      }
+      if (isSale && v.party) {
+        var pl = self.ledgers[v.party], gstin = pl && pl.info ? (pl.info.gstin || '') : '';
+        var key = v.party, p = parties[key];
+        if (!p) { p = parties[key] = { party: v.party, gstin: gstin, taxable: 0, tax: 0, count: 0 }; porder.push(key); }
+        p.taxable += taxable; p.tax += tax; p.count++;
+      }
+    }
+    var ms = order.map(function (k) { var x = months[k]; x.net = x.outputTax - x.inputTax; return x; });
+    return { months: ms, parties: porder.map(function (k) { return parties[k]; }).sort(function (a, b) { return b.taxable - a.taxable; }), taxLedgers: Object.keys(isTax).map(function (n) { return { name: n, kind: kind[n] }; }) };
+  };
+
+  // Monthly cash flow across cash and bank ledgers
+  Book.prototype.cashFlow = function (from, to) {
+    var self = this, months = {}, order = [], isCash = {};
+    this.ledgerNames.forEach(function (n) { var c = self.ledgers[n].chain; if (c.indexOf('Cash-in-Hand') !== -1 || c.indexOf('Bank Accounts') !== -1 || c.indexOf('Bank OD A/c') !== -1) isCash[n] = true; });
+    for (var i = 0; i < this.vouchers.length; i++) {
+      var v = this.vouchers[i];
+      if (!v.affects || v.date < from || v.date > to) continue;
+      var mk = Math.floor(v.date / 100), m = months[mk];
+      if (!m) { m = months[mk] = { month: mk, inflow: 0, outflow: 0, net: 0 }; order.push(mk); }
+      for (var k = 0; k < v.entries.length; k++) { var e = v.entries[k]; if (!isCash[e.ledger]) continue; if (e.amount < 0) m.inflow += -e.amount; else m.outflow += e.amount; }
+      m.net = m.inflow - m.outflow;
+    }
+    return order.map(function (k) { return months[k]; });
+  };
+
+  // Ranked lists for the dashboard
+  Book.prototype.topExpenses = function (from, to, n) {
+    var self = this, out = [];
+    this.ledgerNames.forEach(function (name) { var led = self.ledgers[name]; if (led.nature !== 'E') return; var b = self.ledgerBalance(name, from, to), mv = b.debit - b.credit; if (mv > 0.005) out.push({ name: name, amount: mv }); });
+    return out.sort(function (a, b) { return b.amount - a.amount; }).slice(0, n || 5);
+  };
+  Book.prototype.topParties = function (from, to, base, n) {
+    var tot = {}, order = [];
+    for (var i = 0; i < this.vouchers.length; i++) {
+      var v = this.vouchers[i];
+      if (!v.affects || v.base !== base || v.date < from || v.date > to || !v.party) continue;
+      if (!tot[v.party]) { tot[v.party] = 0; order.push(v.party); }
+      tot[v.party] += v.total;
+    }
+    return order.map(function (p) { return { name: p, amount: tot[p] }; }).sort(function (a, b) { return b.amount - a.amount; }).slice(0, n || 5);
   };
 
   // Bill-wise outstanding for a party (from bill allocations)

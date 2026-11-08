@@ -3,6 +3,10 @@
     <!-- Only used to reach TallyPrime's XML server on your own Wi-Fi (Sync screen). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
     <application
         android:usesCleartextTraffic="true"
         android:label="@string/app_name"

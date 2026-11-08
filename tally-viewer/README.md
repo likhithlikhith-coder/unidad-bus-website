@@ -107,6 +107,20 @@ Screens:
   IRN and acknowledgement the portal returns and they print on the PDF.
   Seller details live under *More → Company GST details* (prefilled from the
   data folder where available).
+- **WhatsApp and letters** – every ledger has a WhatsApp action: PDF or Excel
+  statement, a confirmation-of-account letter, a balance summary text or a
+  payment reminder, sent to the party's number from the master. Reports and
+  app-made invoices share the same way. Ledgers can be pinned to Home.
+- **More reports** – Ratio Analysis, Comparative P&L (vs the same period last
+  year), Cash Flow (cash and bank by month), Receivables and Payables Ageing
+  (bills matched FIFO from ledger entries, five age buckets), GST Summary
+  (output vs input tax by month from supply vouchers, outward supplies by
+  party GSTIN). Every report exports to Excel and PDF.
+- **Home rankings** – top expenses and top customers for the period.
+- **Entries** – auto-numbering keeps your prefix pattern (e.g. 25-26/RENT/026);
+  any app entry can be duplicated.
+- **Backup, restore, app lock** – a company (including entries made here) can
+  be saved to a file and restored; a 4–6 digit PIN can be required on launch.
 - **More** – switch, rename or delete companies; imported file log; theme.
 
 ## Data folder format
