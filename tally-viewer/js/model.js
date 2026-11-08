@@ -356,19 +356,41 @@
     return out;
   };
 
-  // Ledger statement rows with running balance
+  // Ledger statement rows with running balance. "contra" lists the ledgers on the
+  // opposite side of the voucher (what Tally shows under Particulars); "others"
+  // is their names, falling back to every other ledger when sides cannot be told.
   Book.prototype.ledgerStatement = function (name, from, to) {
-    var b = this.ledgerBalance(name, from, to), ent = this.ledgerEntries[name] || [], rows = [], run = b.opening, self = this;
+    var b = this.ledgerBalance(name, from, to), ent = this.ledgerEntries[name] || [], rows = [], run = b.opening;
     for (var i = 0; i < ent.length; i++) {
       var e = ent[i];
       if (e.d < from) continue;
       if (e.d > to) break;
       run += e.a;
-      var v = this.vouchers[e.v], others = [];
-      for (var k = 0; k < v.entries.length; k++) if (v.entries[k].ledger !== name && others.indexOf(v.entries[k].ledger) === -1) others.push(v.entries[k].ledger);
-      rows.push({ date: e.d, amount: e.a, balance: run, voucher: v, others: others });
+      var v = this.vouchers[e.v], contra = [], same = [];
+      for (var k = 0; k < v.entries.length; k++) {
+        var x = v.entries[k];
+        if (x.ledger === name) continue;
+        if ((x.amount < 0) !== (e.a < 0)) contra.push({ ledger: x.ledger, amount: x.amount });
+        else same.push({ ledger: x.ledger, amount: x.amount });
+      }
+      if (!contra.length) contra = same;
+      var others = [];
+      contra.forEach(function (c) { if (others.indexOf(c.ledger) === -1) others.push(c.ledger); });
+      rows.push({ date: e.d, amount: e.a, balance: run, voucher: v, others: others, contra: contra });
     }
     return { balance: b, rows: rows };
+  };
+
+  // Next voucher number for a type (numeric part of the highest existing number + 1)
+  Book.prototype.nextNumber = function (type) {
+    var max = 0;
+    for (var i = 0; i < this.vouchers.length; i++) {
+      var v = this.vouchers[i];
+      if (v.type !== type) continue;
+      var m = /(\d+)\s*$/.exec(String(v.number || ''));
+      if (m && +m[1] > max) max = +m[1];
+    }
+    return max + 1;
   };
 
   // Bill-wise outstanding for a party (from bill allocations)

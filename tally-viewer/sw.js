@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell so Tally Viewer opens with no network. */
-var VERSION = 'tv-v4';
-var SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/model.js', './js/db.js', './js/export.js', './js/tallyparse.js', './js/tallydb.js', './js/parser.worker.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+var VERSION = 'tv-v5';
+var SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/model.js', './js/db.js', './js/export.js', './js/entry.js', './js/entryui.js', './js/tallyparse.js', './js/tallydb.js', './js/parser.worker.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(VERSION).then(function (c) { return Promise.all(SHELL.map(function (u) { return c.add(u).catch(function () { /* skip what cannot be fetched */ }); })); }).then(function () { return self.skipWaiting(); }));
 });

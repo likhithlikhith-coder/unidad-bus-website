@@ -157,3 +157,19 @@ kbd { background: var(--surface-2); border: 1px solid var(--border); border-radi
 .chart-tip { font-size: 13px; margin-top: 6px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .voucher-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .voucher-head .big { font-size: 22px; font-weight: 700; }
+
+/* voucher entry */
+.pick { width: 100%; justify-content: flex-start; text-align: left; font-weight: 500; background: var(--surface-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; }
+.line { display: grid; grid-template-columns: 58px 1fr 100px 32px; gap: 6px; align-items: center; margin-bottom: 8px; }
+.line select, .line input { border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px; padding: 9px 8px; min-width: 0; width: 100%; }
+.line .pick { padding: 9px 10px; }
+.x { border: 0; background: transparent; color: var(--text-3); font-size: 16px; width: 32px; height: 36px; border-radius: 8px; }
+.x:active { background: var(--surface-2); }
+.item { border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 10px; background: var(--surface-2); }
+.item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.item input, .item select { width: 100%; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; min-width: 0; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.chk { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 0; }
+.chk input { width: auto; margin: 0; }
+.sheet input[type=search], .sheet .field input { width: 100%; border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.sheet .list .row { padding: 10px 12px; }

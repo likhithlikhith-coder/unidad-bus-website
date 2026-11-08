@@ -103,63 +103,79 @@
   function pdfStr(s) { return '(' + s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)') + ')'; }
   function latin1Bytes(s) { var u = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff; return u; }
 
-  // doc: { title, subtitle, meta: [lines], columns: [{title, width, align:'l'|'r'}], rows: [[text...]], totals: [[text...]], landscape }
-  function pdf(doc) {
-    var landscape = !!doc.landscape, W = landscape ? 842 : 595, H = landscape ? 595 : 842, M = 28;
-    var fs = doc.fontSize || 8.5, lh = fs * 1.45, cols = doc.columns, sumW = 0;
+  // Low-level page builder. Coordinates in points from the bottom-left; y grows upward.
+  function PdfDoc(opts) {
+    opts = opts || {};
+    this.landscape = !!opts.landscape; this.W = this.landscape ? 842 : 595; this.H = this.landscape ? 595 : 842; this.M = opts.margin || 28;
+    this.pages = []; this.cur = null; this.y = 0; this.footer = opts.footer || '';
+  }
+  PdfDoc.prototype.newPage = function () { this.cur = []; this.pages.push(this.cur); this.y = this.H - this.M; return this; };
+  PdfDoc.prototype.text = function (x, y, s, size, bold, align, maxW) {
+    var t = winAnsi(s); size = size || 9;
+    if (maxW) t = fit(t, maxW, size, bold);
+    var w = textWidth(t, size, bold);
+    if (align === 'r') x -= w; else if (align === 'c') x -= w / 2;
+    this.cur.push('BT /F' + (bold ? 2 : 1) + ' ' + size + ' Tf ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' Td ' + pdfStr(t) + ' Tj ET');
+    return w;
+  };
+  PdfDoc.prototype.line = function (x1, y1, x2, y2, w, gray) { this.cur.push((w || 0.5) + ' w ' + (gray == null ? 0.6 : gray) + ' G ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l S 0 G'); };
+  PdfDoc.prototype.rect = function (x, y, w, h, fillGray, strokeGray) {
+    if (fillGray != null) this.cur.push(fillGray + ' g ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re f 0 g');
+    if (strokeGray != null) this.cur.push('0.5 w ' + strokeGray + ' G ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re S 0 G');
+  };
+  // Wrapped paragraph; returns the height used.
+  PdfDoc.prototype.para = function (x, y, s, size, bold, maxW, lh) {
+    size = size || 9; lh = lh || size * 1.3;
+    var wordsArr = winAnsi(s).split(' '), line = '', lines = [];
+    wordsArr.forEach(function (w) { var t = line ? line + ' ' + w : w; if (textWidth(t, size, bold) > maxW && line) { lines.push(line); line = w; } else line = t; });
+    if (line) lines.push(line);
+    for (var i = 0; i < lines.length; i++) this.text(x, y - i * lh, lines[i], size, bold);
+    return lines.length * lh;
+  };
+  // Table with header, pagination and optional totals. Columns: [{title, width, align}]. onNewPage(doc) draws page furniture before the header.
+  PdfDoc.prototype.table = function (cols, rows, totals, opt) {
+    opt = opt || {};
+    var self = this, fs = opt.fontSize || 8.5, lh = fs * 1.45, W = this.W, M = this.M, sumW = 0;
     cols.forEach(function (c) { sumW += c.width; });
-    var scale = (W - 2 * M) / sumW; // stretch/shrink column widths to the page
-    var widths = cols.map(function (c) { return c.width * scale; });
-    var pages = [], cur = null, y = 0, pageNo = 0, generated = 'Generated ' + new Date().toLocaleString();
-    function newPage() {
-      cur = []; pages.push(cur); pageNo++; y = H - M;
-      if (pageNo === 1) {
-        cur.push('BT /F2 13 Tf ' + M + ' ' + (y - 13) + ' Td ' + pdfStr(winAnsi(doc.title)) + ' Tj ET'); y -= 18;
-        if (doc.subtitle) { cur.push('BT /F1 9.5 Tf ' + M + ' ' + (y - 9) + ' Td ' + pdfStr(winAnsi(doc.subtitle)) + ' Tj ET'); y -= 13; }
-        (doc.meta || []).forEach(function (m) { cur.push('BT /F1 8.5 Tf ' + M + ' ' + (y - 8) + ' Td ' + pdfStr(winAnsi(m)) + ' Tj ET'); y -= 11; });
-        y -= 6;
-      } else {
-        cur.push('BT /F1 8 Tf ' + M + ' ' + (y - 8) + ' Td ' + pdfStr(winAnsi(doc.title + (doc.subtitle ? ' - ' + doc.subtitle : ''))) + ' Tj ET'); y -= 14;
-      }
-      header();
-    }
+    var scale = (opt.fitWidth === false) ? 1 : (W - 2 * M) / sumW, widths = cols.map(function (c) { return c.width * scale; });
     function header() {
-      var x = M; y -= lh;
-      cur.push('0.92 g ' + M + ' ' + (y - 3) + ' ' + (W - 2 * M) + ' ' + (lh + 1) + ' re f 0 g');
-      cols.forEach(function (c, i) { drawCell(c.title, x, y, widths[i], c.align, true); x += widths[i]; });
-      cur.push('0.5 w 0.6 G ' + M + ' ' + (y - 3.5) + ' m ' + (W - M) + ' ' + (y - 3.5) + ' l S 0 G');
+      var x = M; self.y -= lh;
+      self.rect(M, self.y - 3, W - 2 * M, lh + 1, 0.92, null);
+      cols.forEach(function (c, i) { cell(c.title, x, self.y, widths[i], c.align, true); x += widths[i]; });
+      self.line(M, self.y - 3.5, W - M, self.y - 3.5, 0.5, 0.6);
     }
-    function drawCell(text, x, yy, w, align, bold) {
-      var t = fit(winAnsi(text), w - 6, fs, bold);
-      var tx = align === 'r' ? x + w - 3 - textWidth(t, fs, bold) : x + 3;
-      cur.push('BT /F' + (bold ? 2 : 1) + ' ' + fs + ' Tf ' + tx.toFixed(2) + ' ' + yy.toFixed(2) + ' Td ' + pdfStr(t) + ' Tj ET');
+    function cell(text, x, yy, w, align, bold) {
+      var t = fit(winAnsi(text == null ? '' : String(text)), w - 6, fs, bold);
+      var tx = align === 'r' ? x + w - 3 - textWidth(t, fs, bold) : align === 'c' ? x + (w - textWidth(t, fs, bold)) / 2 : x + 3;
+      self.cur.push('BT /F' + (bold ? 2 : 1) + ' ' + fs + ' Tf ' + tx.toFixed(2) + ' ' + yy.toFixed(2) + ' Td ' + pdfStr(t) + ' Tj ET');
     }
     function row(cells, bold, shade) {
-      if (y - lh < M + 18) newPage();
-      y -= lh; var x = M;
-      if (shade) cur.push('0.95 g ' + M + ' ' + (y - 3) + ' ' + (W - 2 * M) + ' ' + (lh + 1) + ' re f 0 g');
-      cells.forEach(function (v, i) { if (i < cols.length) { drawCell(v == null ? '' : String(v), x, y, widths[i], cols[i].align, bold); x += widths[i]; } });
-      cur.push('0.25 w 0.85 G ' + M + ' ' + (y - 3.5) + ' m ' + (W - M) + ' ' + (y - 3.5) + ' l S 0 G');
+      if (self.y - lh < M + 18) { self.newPage(); if (opt.onNewPage) opt.onNewPage(self); header(); }
+      self.y -= lh; var x = M;
+      if (shade) self.rect(M, self.y - 3, W - 2 * M, lh + 1, 0.95, null);
+      cells.forEach(function (v, i) { if (i < cols.length) { cell(v, x, self.y, widths[i], cols[i].align, bold); x += widths[i]; } });
+      self.line(M, self.y - 3.5, W - M, self.y - 3.5, 0.25, 0.85);
     }
-    newPage();
-    (doc.rows || []).forEach(function (r) { row(r, false, false); });
-    (doc.totals || []).forEach(function (r) { row(r, true, true); });
-    // footer on every page
-    pages.forEach(function (p, i) {
-      p.push('BT /F1 7.5 Tf ' + M + ' ' + (M - 10) + ' Td ' + pdfStr(winAnsi(generated + '  -  Tally Viewer')) + ' Tj ET');
-      var pg = 'Page ' + (i + 1) + ' of ' + pages.length;
-      p.push('BT /F1 7.5 Tf ' + (W - M - textWidth(pg, 7.5, false)).toFixed(2) + ' ' + (M - 10) + ' Td ' + pdfStr(pg) + ' Tj ET');
+    header();
+    (rows || []).forEach(function (r) { row(r, false, false); });
+    (totals || []).forEach(function (r) { row(r, true, true); });
+    return this;
+  };
+  PdfDoc.prototype.finish = function () {
+    var self = this, M = this.M, W = this.W;
+    this.pages.forEach(function (p, i) {
+      self.cur = p;
+      if (self.footer) self.text(M, M - 10, self.footer, 7.5, false);
+      self.text(W - M, M - 10, 'Page ' + (i + 1) + ' of ' + self.pages.length, 7.5, false, 'r');
     });
-    // assemble objects: 1 catalog, 2 pages, 3 F1, 4 F2, then page+content pairs
     var objs = [], offsets = [];
     objs.push('<< /Type /Catalog /Pages 2 0 R >>');
-    var kids = pages.map(function (p, i) { return (5 + i * 2) + ' 0 R'; }).join(' ');
-    objs.push('<< /Type /Pages /Kids [' + kids + '] /Count ' + pages.length + ' >>');
+    objs.push('<< /Type /Pages /Kids [' + this.pages.map(function (p, i) { return (5 + i * 2) + ' 0 R'; }).join(' ') + '] /Count ' + this.pages.length + ' >>');
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-    pages.forEach(function (p, i) {
+    this.pages.forEach(function (p, i) {
       var content = p.join('\n');
-      objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + W + ' ' + H + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ' + (6 + i * 2) + ' 0 R >>');
+      objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + self.W + ' ' + self.H + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ' + (6 + i * 2) + ' 0 R >>');
       objs.push('<< /Length ' + latin1Bytes(content).length + ' >>\nstream\n' + content + '\nendstream');
     });
     var out = '%PDF-1.4\n%âãÏÓ\n';
@@ -169,6 +185,18 @@
     offsets.forEach(function (o) { out += pad(o, 10) + ' 00000 n \n'; });
     out += 'trailer\n<< /Size ' + (objs.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n';
     return new Blob([latin1Bytes(out)], { type: 'application/pdf' });
+  };
+
+  // doc: { title, subtitle, meta: [lines], columns: [{title, width, align}], rows: [[text...]], totals: [[text...]], landscape }
+  function pdf(doc) {
+    var d = new PdfDoc({ landscape: doc.landscape, footer: 'Generated ' + new Date().toLocaleString() + '  -  Tally Viewer' });
+    d.newPage(); var M = d.M;
+    d.text(M, d.y - 13, doc.title, 13, true); d.y -= 18;
+    if (doc.subtitle) { d.text(M, d.y - 9, doc.subtitle, 9.5); d.y -= 13; }
+    (doc.meta || []).forEach(function (m) { d.text(M, d.y - 8, m, 8.5); d.y -= 11; });
+    d.y -= 6;
+    d.table(doc.columns, doc.rows, doc.totals, { fontSize: doc.fontSize, onNewPage: function (dd) { dd.text(M, dd.y - 8, doc.title + (doc.subtitle ? ' - ' + doc.subtitle : ''), 8); dd.y -= 14; } });
+    return d.finish();
   }
 
   /* ---- saving ------------------------------------------------------------- */
@@ -200,5 +228,5 @@
     if (ok) p.resolve({ name: name, where: where }); else p.reject(new Error(where || 'Could not save'));
   };
 
-  root.TVExport = { xlsx: xlsx, pdf: pdf, save: save, safeName: safeName, zip: zip };
+  root.TVExport = { xlsx: xlsx, pdf: pdf, PdfDoc: PdfDoc, save: save, safeName: safeName, zip: zip };
 })(typeof self !== 'undefined' ? self : globalThis);

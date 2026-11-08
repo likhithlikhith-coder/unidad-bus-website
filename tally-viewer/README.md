@@ -93,6 +93,20 @@ Screens:
   or PDF. Both files are generated on the phone by `js/export.js` without any
   library; in the Android app the file goes to Downloads/TallyViewer and the
   share sheet opens, in a browser it downloads.
+- **Entries** – pass journal, payment, receipt, contra, sales, purchase, credit
+  and debit note vouchers on the phone (＋ on Home or Day Book). They post into
+  the app's books at once. *More → Entries made in app* lists them; send them to
+  TallyPrime either as a Tally import XML file (Gateway of Tally → Import →
+  Vouchers) or directly over Wi-Fi (Android app). Ledgers must already exist in
+  Tally with the same names.
+- **GST sales invoice and e-invoice** – a dedicated form (party, GSTIN, place
+  of supply, items with HSN/SAC and GST rate, CGST+SGST or IGST worked out
+  automatically, round off). From the saved invoice: a GST tax invoice PDF, and
+  the NIC e-invoice JSON (schema 1.1) ready for bulk IRN generation on the
+  e-invoice portal (einvoice1.gst.gov.in → e-Invoice → Bulk Upload). Enter the
+  IRN and acknowledgement the portal returns and they print on the PDF.
+  Seller details live under *More → Company GST details* (prefilled from the
+  data folder where available).
 - **More** – switch, rename or delete companies; imported file log; theme.
 
 ## Data folder format
@@ -135,6 +149,10 @@ is known so far:
   chain and post nothing, which is exactly how Tally treats them.
 - A ledger line's nested record 510 is the bank allocation (instrument,
   transaction type such as NEFT, reference, date).
+
+E-invoice note: the app produces the JSON the portal (or any GSP tool) consumes.
+It does not call the IRP API itself; direct API access needs GSP credentials and
+is not part of this app.
 
 Not yet seen in sample data and therefore unverified: inventory lines on
 sales/purchase vouchers, cost centres, bill-wise references, and

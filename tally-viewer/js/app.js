@@ -105,7 +105,7 @@
     ['more', 'More', '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>']
   ];
   function renderNav(r) {
-    var cur = r.name === 'ledger' ? 'ledgers' : r.name === 'voucher' ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : (r.name === 'companies' || r.name === 'import' || r.name === 'help' || r.name === 'sync') ? 'more' : r.name;
+    var cur = r.name === 'ledger' ? 'ledgers' : (r.name === 'voucher' || r.name === 'entry' || r.name === 'invoice') ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : (r.name === 'companies' || r.name === 'import' || r.name === 'help' || r.name === 'sync' || r.name === 'pending' || r.name === 'gst') ? 'more' : r.name;
     $nav.innerHTML = NAV.map(function (n) { return '<button data-go="' + n[0] + '" class="' + (cur === n[0] ? 'on' : '') + '">' + n[2] + '<span>' + n[1] + '</span></button>'; }).join('');
   }
 
@@ -525,7 +525,7 @@
   /* ---- home --------------------------------------------------------------- */
   SCREENS.home = function () {
     var b = S.book, p = S.period, s = b.summary(p.from, p.to);
-    topbar({ title: S.company.name, sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="company">⇄</button>' });
+    topbar({ title: S.company.name, sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="newentry">＋</button><button class="chip" data-act="company">⇄</button>' });
     var h = '';
     if (!b.vouchers.length) h += '<div class="notice">No vouchers imported for this company yet. Import a Daybook.xml to see activity.</div>';
     else if (Object.keys(b.data.groups).length === 0) h += '<div class="notice">Masters not imported: ledgers can\'t be grouped, so balance sheet and P&amp;L will be incomplete. Import Master.xml too.</div>';
@@ -604,7 +604,8 @@
     var rows = st.rows.map(function (x) {
       var v = x.voucher, dr = x.amount < 0 ? -x.amount : 0, cr = x.amount > 0 ? x.amount : 0;
       totalsDr += dr; totalsCr += cr;
-      return { date: fmtDate(x.date), part: x.others.join(', ') || v.party || v.type, type: v.type, no: v.number, dr: dr, cr: cr, bal: x.balance, narr: v.narration };
+      var part = x.others.length === 1 ? x.others[0] : x.others.length ? x.contra.map(function (c) { return c.ledger + ' ' + fmt(Math.abs(c.amount)); }).join('; ') : (v.party || v.type);
+      return { date: fmtDate(x.date), part: part, type: v.type, no: v.number, dr: dr, cr: cr, bal: x.balance, narr: v.narration };
     });
     if (kind === 'xlsx') {
       var sheet = {
@@ -724,8 +725,9 @@
     h += '<div class="section-title">' + pluralize(st.rows.length, 'transaction') + ' in period</div>';
     if (st.rows.length) {
       var rows = st.rows.slice().reverse().map(function (x) {
-        var v = x.voucher;
-        return '<button class="row" data-voucher="' + v.idx + '"><div class="main"><div class="t">' + esc(x.others.slice(0, 2).join(', ') || v.party || v.type) + '</div><div class="s">' + fmtDate(x.date) + ' · ' + esc(v.type) + (v.number ? ' #' + esc(v.number) : '') + (v.narration ? ' · ' + esc(v.narration) : '') + '</div></div><div class="amt"><div class="v">' + bal(x.amount) + '</div><div class="s">' + bal(x.balance, false).replace(/<[^>]+>/g, '') + '</div></div></button>';
+        var v = x.voucher, particulars = x.others.length === 1 ? x.others[0] : x.others.length ? 'As per details (' + x.others.length + ' ledgers)' : (v.party || v.type);
+        var detail = x.others.length > 1 ? x.contra.map(function (c) { return esc(c.ledger) + ' ' + fmt(Math.abs(c.amount)); }).join(' · ') : '';
+        return '<button class="row" data-voucher="' + v.idx + '"><div class="main"><div class="t">' + esc(particulars) + '</div><div class="s">' + fmtDate(x.date) + ' · ' + esc(v.type) + (v.number ? ' #' + esc(v.number) : '') + (v.source === 'app' ? ' · app' : '') + (detail ? ' · ' + detail : (v.narration ? ' · ' + esc(v.narration) : '')) + '</div></div><div class="amt"><div class="v">' + bal(x.amount) + '</div><div class="s">' + bal(x.balance, false).replace(/<[^>]+>/g, '') + '</div></div></button>';
       });
       h += '<div class="list" id="lrows">' + rows.slice(0, 200).join('') + '</div>';
       if (rows.length > 200) h += '<button class="btn block" id="lmore">Show all ' + rows.length + '</button>';
@@ -737,7 +739,7 @@
   /* ---- vouchers ----------------------------------------------------------- */
   SCREENS.vouchers = function (r) {
     var b = S.book, p = S.period, q = r.q.q || '', type = r.q.type || '';
-    topbar({ title: 'Day Book', sub: S.company.name });
+    topbar({ title: 'Day Book', sub: S.company.name, right: '<button class="chip" data-act="newentry">＋ Entry</button>' });
     var list = b.vouchersIn(p.from, p.to, { q: q, type: type });
     var types = Object.keys(b.typeCounts).sort();
     var h = '<div class="search"><input type="search" id="vsearch" placeholder="Search party, narration, number, ledger" value="' + esc(q) + '"></div>' +
@@ -763,7 +765,7 @@
   };
   function voucherRow(v) {
     var who = v.party || (v.entries[0] ? v.entries[0].ledger : '');
-    var flag = v.cancelled ? ' · cancelled' : v.optional ? ' · optional' : !v.affects ? ' · no effect' : '';
+    var flag = (v.cancelled ? ' · cancelled' : v.optional ? ' · optional' : !v.affects ? ' · no effect' : '') + (v.source === 'app' ? (v.posted ? ' · app ✓' : ' · app, pending') : '');
     return '<button class="row" data-voucher="' + v.idx + '"><span class="badge">' + esc(v.type) + '</span><div class="main"><div class="t">' + esc(who) + '</div><div class="s">' + fmtDate(v.date) + (v.number ? ' · #' + esc(v.number) : '') + flag + (v.narration ? ' · ' + esc(v.narration) : '') + '</div></div><div class="amt"><div class="v num">' + fmt(v.total) + '</div></div></button>';
   }
 
@@ -776,6 +778,11 @@
     else if (v.optional) h += '<div class="notice" style="margin-top:10px">Optional voucher – not counted in balances.</div>';
     else if (!v.affects) h += '<div class="notice" style="margin-top:10px">' + esc(v.base) + ' – does not affect ledger balances.</div>';
     if (v.unbalanced) h += '<div class="notice" style="margin-top:10px">Entries do not balance by ' + fmt(v.unbalanced) + '. The export may be incomplete for this voucher.</div>';
+    if (v.source === 'app') {
+      h += '<div class="notice" style="margin-top:10px;background:var(--accent-soft);color:var(--text)">Entered in this app · ' + (v.posted ? 'sent to Tally' : 'not yet in Tally') + (v.invoice && v.invoice.irn ? ' · IRN ' + esc(v.invoice.irn.slice(0, 12)) + '…' : '') + '</div>';
+      h += '<div class="btn-row"><button class="btn" data-go="' + (v.invoice ? 'invoice?edit=' + encodeURIComponent(v.id) : 'entry?edit=' + encodeURIComponent(v.id)) + '">Edit</button><button class="btn" data-vact="xml">⤓ Tally XML</button><button class="btn" data-vact="post">⇡ Post to Tally</button>' +
+        (v.invoice ? '<button class="btn" data-vact="pdf">⤓ Invoice PDF</button><button class="btn" data-vact="einv">⤓ E-invoice JSON</button><button class="btn" data-vact="irn">IRN…</button>' : '') + '</div>';
+    }
     if (v.ref) h += '<div class="kv" style="margin-top:8px"><span class="muted">Reference</span><span>' + esc(v.ref) + '</span></div>';
     if (v.narration) h += '<div class="kv"><span class="muted">Narration</span><span>' + esc(v.narration) + '</span></div>';
     h += '</div>';
@@ -793,7 +800,16 @@
       });
       h += '</table></div>';
     }
+    if (v.invoice) {
+      var ci = TVEntry.computeInvoice(v.invoice);
+      h += '<div class="card"><h2>Invoice items</h2><table class="tbl"><tr><th>Item</th><th class="n">Qty</th><th class="n">Rate</th><th class="n">Taxable</th><th class="n">GST</th></tr>' + ci.items.map(function (it) { return '<tr><td>' + esc(it.desc) + '<div class="small faint">HSN ' + esc(it.hsn) + ' · ' + it.gstRate + '%</div></td><td class="n">' + it.qty + ' ' + esc(it.unit) + '</td><td class="n">' + fmt(it.rate) + '</td><td class="n">' + fmt(it.taxable) + '</td><td class="n">' + fmt(it.cgst + it.sgst + it.igst) + '</td></tr>'; }).join('') + '</table>' +
+        '<div class="kv" style="margin-top:8px"><span>Buyer GSTIN</span><span>' + esc(v.invoice.buyer.gstin || '—') + '</span></div>' + (v.invoice.irn ? '<div class="kv"><span>IRN</span><span class="small" style="word-break:break-all">' + esc(v.invoice.irn) + '</span></div><div class="kv"><span>Ack</span><span>' + esc(v.invoice.ackNo) + ' · ' + esc(v.invoice.ackDate) + '</span></div>' : '') + '</div>';
+    }
     $view.innerHTML = h;
+    $view.querySelectorAll('[data-vact]').forEach(function (el) { el.onclick = function () {
+      var a = el.getAttribute('data-vact');
+      if (a === 'xml') TVApp.exportTallyXml([v]); else if (a === 'post') TVApp.postToTally([v]); else if (a === 'pdf') TVApp.exportInvoicePdf(v); else if (a === 'einv') TVApp.exportEInvoice(v); else if (a === 'irn') TVApp.enterIrn(v);
+    }; });
   };
 
   /* ---- reports ------------------------------------------------------------ */
@@ -945,6 +961,8 @@
       if (b.data.files.length) h += '<div class="card"><h2>Imported files</h2>' + b.data.files.slice().reverse().slice(0, 10).map(function (f) { return '<div class="kv"><span>' + esc(f.name) + '<div class="small faint">' + new Date(f.at).toLocaleString() + '</div></span><span class="small muted">' + [f.counts.vouchers.added + f.counts.vouchers.updated ? (f.counts.vouchers.added + f.counts.vouchers.updated) + ' vch' : '', f.counts.ledgers.added + f.counts.ledgers.updated ? (f.counts.ledgers.added + f.counts.ledgers.updated) + ' ledgers' : ''].filter(Boolean).join(', ') + '</span></div>'; }).join('') + '</div>';
     }
     h += '<div class="list"><button class="row" data-go="companies"><div class="main"><div class="t">Companies</div><div class="s">' + pluralize(S.companies.length, 'company') + ' on this phone</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-go="pending"><div class="main"><div class="t">Entries made in app</div><div class="s">' + (b ? pluralize(b.vouchers.filter(function (v) { return v.source === 'app' && !v.posted; }).length, 'entry').replace('entrys', 'entries') + ' not yet in Tally' : '') + '</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-go="gst"><div class="main"><div class="t">Company GST details</div><div class="s">GSTIN, address and default ledgers for invoices and e-invoices</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="import"><div class="main"><div class="t">Open Tally data folder / XML files</div><div class="s">Reads Manager.1800, TranMgr.1800, Company.1800 directly</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="help"><div class="main"><div class="t">How to export from TallyPrime</div></div><span class="chev">›</span></button>' +
@@ -1017,6 +1035,7 @@
     var act = el.getAttribute('data-act');
     if (act === 'back') { if (history.length > 1) history.back(); else go('#/home'); }
     else if (act === 'period') periodSheet();
+    else if (act === 'newentry') TVApp.newEntrySheet();
     else if (act === 'company') companySheet();
     else if (act === 'theme') themeSheet();
     else if (act === 'rename') {
@@ -1030,6 +1049,9 @@
     }
   });
   window.addEventListener('hashchange', render);
+
+  /* ---- bridge for entryui.js ---------------------------------------------- */
+  window.TVApp = { S: S, SCREENS: SCREENS, NEEDS_BOOK: NEEDS_BOOK, topbar: topbar, toast: toast, go: go, esc: esc, fmt: fmt, fmtDate: fmtDate, fmtDateLong: fmtDateLong, toISO: toISO, fromISO: fromISO, sheet: sheet, lsGet: lsGet, lsSet: lsSet, uid: uid, pluralize: pluralize, bal: bal, afterSave: afterSave, tallyRequest: tallyRequest, hasBridge: hasBridge, loadCompanies: loadCompanies, render: render, $view: function () { return $view; } };
 
   /* ---- boot --------------------------------------------------------------- */
   function boot() {

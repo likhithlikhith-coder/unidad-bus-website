@@ -202,6 +202,18 @@
         else if (o.kind === 7 && o.name) sgById[o.id] = { name: o.name, parentId: (find(es, 3, 0x03) || {}).val || 0 };
         else if (o.kind === 6 && o.name) godownById[o.id] = o.name;
         else if (o.kind === 10 && o.name) vtById[o.id] = { name: o.name, base: BASE_TYPES[(find(es, 4002, 0x06) || {}).val] || '' };
+        else if (o.kind === 31 && out.companyInfo) {
+          // GST registration ("tax unit"): nested 3205 → 3202 GSTIN, 3203 state, 3204 city
+          var reg = find(es, 3205, 0x10);
+          if (reg) {
+            var g = str(reg.kids, 3202), pan = (out.companyInfo.pan || '').replace(/\s+/g, '').toUpperCase();
+            if (g && (!out.companyInfo.gstin || (pan && g.slice(2, 12) === pan))) {
+              out.companyInfo.gstin = g.toUpperCase();
+              if (!out.companyInfo.city) out.companyInfo.city = str(reg.kids, 3204);
+              if (str(reg.kids, 3203)) out.companyInfo.state = str(reg.kids, 3203);
+            }
+          }
+        }
       });
       // groups → output
       var gnames = {};
