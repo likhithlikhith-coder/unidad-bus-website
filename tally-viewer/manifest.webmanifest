@@ -1,11 +1,12 @@
 {
+  "id": "/tally-viewer/",
   "name": "Tally Viewer",
   "short_name": "Tally Viewer",
-  "description": "Offline viewer for TallyPrime XML exports: dashboards, ledgers, day book and reports.",
+  "description": "Offline TallyPrime companion: open Tally data folders, dashboards, ledgers, day book, GST and reports on your phone.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#07080B",
   "theme_color": "#07080B",
   "icons": [

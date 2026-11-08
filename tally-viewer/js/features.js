@@ -20,10 +20,13 @@
     restore: '<svg viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5"/><path d="M4 3h16"/></svg>',
     irn: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h3v3h3v3h-6z"/></svg>'
   };
-  function actions(items) { return '<div class="actions">' + items.map(function (it) { return '<button class="act' + (it.cls ? ' ' + it.cls : '') + '" data-faction="' + esc(it.key) + '"><span class="ico">' + (I[it.icon] || '') + '</span>' + esc(it.label) + '</button>'; }).join('') + '</div>'; }
+  function actions(items) { return '<div class="actions">' + items.map(function (it) { return '<button class="act' + (it.cls ? ' ' + it.cls : '') + '" data-faction="' + esc(it.key) + '"' + (it.pressed !== undefined ? ' aria-pressed="' + (it.pressed ? 'true' : 'false') + '"' : '') + '><span class="ico">' + (I[it.icon] || '') + '</span>' + esc(it.label) + '</button>'; }).join('') + '</div>'; }
   function digits(ph) { var d = String(ph || '').replace(/[^0-9]/g, ''); if (d.length === 10) d = '91' + d; return d; }
   function company() { var st = A.companySettings ? A.companySettings() : {}; return { name: S.company.name, address: [st.address1, st.address2, st.city, st.pin].filter(Boolean).join(', '), gstin: st.gstin, phone: st.phone }; }
   function blobToB64(blob) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(',')[1] || ''); }; fr.onerror = rej; fr.readAsDataURL(blob); }); }
+  function dateRange(a, b) { return A.dateRange ? A.dateRange(a, b) : A.fmtDate(a) + ' – ' + A.fmtDate(b); }
+  function lsRemove(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+  function isCreditNote(type) { return !!(A.isCreditNote && S.book && A.isCreditNote(type)); }
 
   /* ---- sharing ---------------------------------------------------------- */
   // o: { name, blob?, text?, phone? }, target: 'whatsapp' | 'any'
@@ -49,7 +52,7 @@
   }
   function whatsappSheet(o) {
     // o: { title, phone, options: [{label, hint, build: () => Promise<{name, blob?, text}>}] }
-    var h = '<h3>' + esc(o.title) + '</h3><div class="field"><label>WhatsApp number</label><input id="wa-phone" inputmode="tel" placeholder="98XXXXXXXX (blank = pick a contact)" value="' + esc(o.phone || '') + '"></div>' +
+    var h = '<h3>' + esc(o.title) + '</h3><div class="field"><label for="wa-phone">WhatsApp number</label><input id="wa-phone" inputmode="tel" placeholder="98XXXXXXXX (blank = pick a contact)" value="' + esc(o.phone || '') + '"></div>' +
       '<div class="list">' + o.options.map(function (op, i) { return '<button class="row" data-wa="' + i + '"><span class="badge" data-base="Receipt">WA</span><div class="main"><div class="t">' + esc(op.label) + '</div>' + (op.hint ? '<div class="s">' + esc(op.hint) + '</div>' : '') + '</div><span class="chev">›</span></button>'; }).join('') + '</div>' +
       '<p class="small muted">In the Android app the file opens directly in WhatsApp' + (o.phone ? ' for this contact' : '') + '. In a browser the file downloads and WhatsApp opens with the message.</p>';
     A.sheet(h, function (ev, bg) {
@@ -78,19 +81,19 @@
       { key: 'ledger-xlsx:' + name, icon: 'excel', label: 'Excel' },
       { key: 'ledger-pdf:' + name, icon: 'pdf', label: 'PDF' },
       { key: 'ledger-letter:' + name, icon: 'letter', label: 'Confirmation' },
-      { key: 'ledger-pin:' + name, icon: 'pin', label: pinned ? 'Pinned' : 'Pin', cls: pinned ? 'on' : '' }
+      { key: 'ledger-pin:' + name, icon: 'pin', label: pinned ? 'Pinned' : 'Pin', cls: pinned ? 'on' : '', pressed: pinned }
     ]);
   }
   function ledgerMonthlyCard(name) {
-    var m = S.book.ledgerMonthly(name, S.period.from, S.period.to);
+    var m = S.book.ledgerMonthly(name, S.period.from, S.period.to), led = S.book.ledgers[name];
     if (!m.months.length) return '';
     return '<details class="card" style="padding:0"><summary style="list-style:none;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)">Monthly summary</span><span class="chev">▾</span></summary><div style="padding:0 16px 14px"><table class="tbl"><tr><th>Month</th><th class="n">Debit</th><th class="n">Credit</th><th class="n">Closing</th></tr>' +
-      m.months.map(function (x) { return '<tr><td>' + A.fmtMonth(x.month) + '</td><td class="n">' + (x.debit ? fmt(x.debit) : '') + '</td><td class="n">' + (x.credit ? fmt(x.credit) : '') + '</td><td class="n">' + A.bal(x.closing) + '</td></tr>'; }).join('') + '</table></div></details>';
+      m.months.map(function (x) { return '<tr><td>' + A.fmtMonth(x.month) + '</td><td class="n">' + (x.debit ? fmt(x.debit) : '') + '</td><td class="n">' + (x.credit ? fmt(x.credit) : '') + '</td><td class="n">' + A.bal(x.closing, undefined, led) + '</td></tr>'; }).join('') + '</table></div></details>';
   }
   function ledgerWhatsapp(name) {
     var c = ledgerCtx(name);
     whatsappSheet({ title: 'Send ' + name, phone: c.party.phone, options: [
-      { label: 'PDF statement', hint: 'Ledger for ' + A.fmtDate(c.from) + ' – ' + A.fmtDate(c.to), build: function () { var e = A.buildLedgerExport(name, 'pdf'); return { name: e.name, blob: e.blob, text: TVEntry.ledgerSummaryText(c) }; } },
+      { label: 'PDF statement', hint: 'Ledger for ' + dateRange(c.from, c.to), build: function () { var e = A.buildLedgerExport(name, 'pdf'); return { name: e.name, blob: e.blob, text: TVEntry.ledgerSummaryText(c) }; } },
       { label: 'Excel statement', hint: 'Same statement as a spreadsheet', build: function () { var e = A.buildLedgerExport(name, 'xlsx'); return { name: e.name, blob: e.blob, text: TVEntry.ledgerSummaryText(c) }; } },
       { label: 'Confirmation of account', hint: 'Balance confirmation letter (PDF)', build: function () { return { name: TVExport.safeName(S.company.name + ' - Confirmation - ' + name + '.pdf'), blob: TVEntry.confirmationPdf(c, TVExport), text: 'Please find attached the confirmation of account from ' + c.company.name + '.' }; } },
       { label: 'Balance summary (text only)', hint: 'Opening, debits, credits, closing', build: function () { return { name: 'summary', text: TVEntry.ledgerSummaryText(c) }; } },
@@ -110,14 +113,18 @@
   function reportSections() {
     var byKey = {}; A.REPORTS.forEach(function (r) { byKey[r[0]] = r; });
     return SECTIONS.map(function (sec) {
-      return '<div class="section-title">' + sec[0] + '</div><div class="list">' + sec[1].map(function (k) { var r = byKey[k]; if (!r) return ''; return '<a class="row" href="#/report/' + r[0] + '"><span class="ico" style="width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none">' + (A.ICONS[RICON[k]] || '').replace('<svg', '<svg style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"') + '</span><div class="main"><div class="t">' + r[1] + '</div><div class="s">' + r[2] + '</div></div><span class="chev">›</span></a>'; }).join('') + '</div>';
+      return '<div class="section-title">' + sec[0] + '</div><div class="list">' + sec[1].map(function (k) { var r = byKey[k]; if (!r) return ''; return '<a class="row" href="#/report/' + r[0] + '"><span class="ico" style="width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--surface-3);color:var(--text-2);flex:none">' + (A.ICONS[RICON[k]] || '').replace('<svg', '<svg style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"') + '</span><div class="main"><div class="t">' + r[1] + '</div><div class="s">' + r[2] + '</div></div><span class="chev">›</span></a>'; }).join('') + '</div>';
     }).join('');
   }
+  // Every cell is escaped. A cell may be { html: '<safe markup>' } to pass markup the caller has already escaped.
+  function cell(v) { return v == null ? '' : (typeof v === 'object' && v.html !== undefined) ? String(v.html) : esc(v); }
   function tableCard(cols, rows, totals, note) {
-    return '<div class="card" style="overflow:auto"><table class="tbl"><tr>' + cols.map(function (c) { return '<th' + (c.align === 'r' ? ' class="n"' : '') + '>' + esc(c.title) + '</th>'; }).join('') + '</tr>' +
-      rows.map(function (r) { return '<tr>' + r.map(function (v, i) { return '<td' + (cols[i].align === 'r' ? ' class="n"' : (i === 0 && cols[0].title === 'Month' ? ' style="white-space:nowrap"' : '')) + '>' + (v == null ? '' : (typeof v === 'string' && /^<\w/.test(v) ? v : esc(v))) + '</td>'; }).join('') + '</tr>'; }).join('') +
-      (totals || []).map(function (r) { return '<tr class="total">' + r.map(function (v, i) { return '<td' + (cols[i].align === 'r' ? ' class="n"' : '') + '>' + (v == null ? '' : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table>' + (note ? '<p class="small muted" style="margin-top:10px">' + note + '</p>' : '') + '</div>';
+    function td(v, i, extra) { return '<td' + (cols[i] && cols[i].align === 'r' ? ' class="n"' : (extra || '')) + '>' + cell(v) + '</td>'; }
+    return '<div class="card scroll" style="overflow:auto"><table class="tbl"><tr>' + cols.map(function (c) { return '<th' + (c.align === 'r' ? ' class="n"' : '') + '>' + esc(c.title) + '</th>'; }).join('') + '</tr>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (v, i) { return td(v, i, i === 0 && cols[0].title === 'Month' ? ' style="white-space:nowrap"' : ''); }).join('') + '</tr>'; }).join('') +
+      (totals || []).map(function (r) { return '<tr class="total">' + r.map(function (v, i) { return td(v, i); }).join('') + '</tr>'; }).join('') + '</table>' + (note ? '<p class="small muted" style="margin-top:10px">' + esc(note) + '</p>' : '') + '</div>';
   }
+  function link(name, sub) { return { html: '<a href="#/ledger/' + encodeURIComponent(name) + '">' + esc(name) + '</a>' + (sub ? '<div class="small faint">' + esc(sub) + '</div>' : '') }; }
   var nf = function (n) { return n == null ? '' : fmt(n); };
   A.REPORT_FN.ratios = function (b, from, to) {
     var r = b.ratios(from, to), rows = [
@@ -126,8 +133,8 @@
       ['Quick ratio', r.quickRatio == null ? 'n/a' : r.quickRatio.toFixed(2), 'Excludes stock-in-hand'],
       ['Debt to equity', r.debtEquity == null ? 'n/a' : r.debtEquity.toFixed(2), 'Loans ÷ (capital + reserves + profit)'],
       ['Gross profit', r.grossProfitPct == null ? 'n/a' : r.grossProfitPct.toFixed(1) + '%', 'Of sales, excl. stock valuation'],
-      ['Net profit', r.netProfitPct == null ? 'n/a' : r.netProfitPct.toFixed(1) + '%', 'Of sales'],
-      ['Return on equity', r.returnOnEquityPct == null ? 'n/a' : r.returnOnEquityPct.toFixed(1) + '%', 'Net profit ÷ equity, for the period'],
+      ['Net profit (before stock)', r.netProfitPct == null ? 'n/a' : r.netProfitPct.toFixed(1) + '%', 'Of sales, before opening/closing stock'],
+      ['Return on equity', r.returnOnEquityPct == null ? 'n/a' : r.returnOnEquityPct.toFixed(1) + '%', 'Net profit (before stock) ÷ equity, for the period'],
       ['Receivable days', r.receivableDays == null || r.receivableDays < 0 ? 'n/a' : Math.round(r.receivableDays) + ' days', 'Debtors ÷ sales × days in period'],
       ['Payable days', r.payableDays == null || r.payableDays < 0 ? 'n/a' : Math.round(r.payableDays) + ' days', 'Creditors ÷ purchases × days in period'],
       ['Cash & bank', fmt(r.cashBank), 'As on ' + A.fmtDate(to)]
@@ -138,9 +145,9 @@
     var r = b.ageingReport(to, side), names = r.buckets.map(function (x, i) { return i === r.buckets.length - 1 ? '> ' + (r.buckets[i - 1][1]) : x[0] + '–' + x[1]; });
     if (!r.rows.length) return '<div class="empty">Nothing outstanding as on ' + A.fmtDate(to) + '.</div>';
     var cols = [{ title: 'Party' }].concat(names.map(function (n) { return { title: n + ' d', align: 'r' }; })).concat([{ title: 'Total', align: 'r' }]);
-    var rows = r.rows.map(function (x) { return ['<a href="#/ledger/' + encodeURIComponent(x.name) + '">' + esc(x.name) + '</a><div class="small faint">' + x.bills + ' bill' + (x.bills === 1 ? '' : 's') + ' · oldest ' + x.oldest + ' d</div>'].concat(x.buckets.map(function (v) { return v ? fmt(v) : ''; })).concat([fmt(x.total)]); });
+    var rows = r.rows.map(function (x) { return [link(x.name, x.bills + ' bill' + (x.bills === 1 ? '' : 's') + ' · oldest ' + x.oldest + ' d')].concat(x.buckets.map(function (v) { return v ? fmt(v) : ''; })).concat([fmt(x.total)]); });
     var totals = [['Total'].concat(r.totals.map(function (v) { return v ? fmt(v) : ''; })).concat([fmt(r.grand)])];
-    var tiles = '<div class="tiles">' + r.buckets.map(function (bk, i) { return '<div class="tile"><div class="label">' + names[i] + ' days</div><div class="value num" style="font-size:18px">' + A.compact(r.totals[i]) + '</div></div>'; }).join('') + '</div>';
+    var tiles = '<div class="tiles">' + r.buckets.map(function (bk, i) { return '<div class="tile"><div class="label">' + names[i] + ' days</div><div class="value num">' + A.compact(r.totals[i]) + '</div></div>'; }).join('') + '</div>';
     return tiles + tableCard(cols, rows, totals, 'Bills are matched first-in-first-out from the ledger entries (invoices against receipts), as on ' + A.fmtDate(to) + '. Opening balances count from the start of the books.');
   }
   A.REPORT_FN.ageing = function (b, from, to) { return ageingHtml(b, to, 'debtor'); };
@@ -148,22 +155,26 @@
   A.REPORT_FN.cashflow = function (b, from, to) {
     var m = b.cashFlow(from, to); if (!m.length) return '<div class="empty">No cash or bank movement in this period.</div>';
     var ti = 0, tout = 0; m.forEach(function (x) { ti += x.inflow; tout += x.outflow; });
-    return '<div class="tiles"><div class="tile"><div class="label">Inflow</div><div class="value num cr" style="font-size:18px">' + A.compact(ti) + '</div></div><div class="tile"><div class="label">Outflow</div><div class="value num dr" style="font-size:18px">' + A.compact(tout) + '</div></div></div>' +
-      tableCard([{ title: 'Month' }, { title: 'Inflow', align: 'r' }, { title: 'Outflow', align: 'r' }, { title: 'Net', align: 'r' }], m.map(function (x) { return [A.fmtMonth(x.month), fmt(x.inflow), fmt(x.outflow), (x.net < 0 ? '-' : '') + fmt(Math.abs(x.net))]; }), [['Total', fmt(ti), fmt(tout), (ti - tout < 0 ? '-' : '') + fmt(Math.abs(ti - tout))]], 'Across all cash, bank and bank OD ledgers.');
+    return '<div class="tiles"><div class="tile"><div class="label">Inflow</div><div class="value num">' + A.compact(ti) + '</div></div><div class="tile"><div class="label">Outflow</div><div class="value num">' + A.compact(tout) + '</div></div></div>' +
+      tableCard([{ title: 'Month' }, { title: 'Inflow', align: 'r' }, { title: 'Outflow', align: 'r' }, { title: 'Net', align: 'r' }], m.map(function (x) { return [A.fmtMonth(x.month), fmt(x.inflow), fmt(x.outflow), (x.net < 0 ? '-' : '') + fmt(Math.abs(x.net))]; }), [['Total', fmt(ti), fmt(tout), (ti - tout < 0 ? '-' : '') + fmt(Math.abs(ti - tout))]], 'Across all cash, bank and bank OD ledgers. Contra transfers between cash and bank are excluded.');
   };
   A.REPORT_FN.gst = function (b, from, to) {
     var g = b.gstSummary(from, to);
     if (!g.months.length) return '<div class="empty">No sales or purchase vouchers in this period.</div>';
     var to_ = 0, ti = 0, ow = 0; g.months.forEach(function (m) { to_ += m.outputTax; ti += m.inputTax; ow += m.outward; });
-    var h = '<div class="tiles"><div class="tile"><div class="label">Outward supplies</div><div class="value num" style="font-size:18px">' + A.compact(ow) + '</div></div><div class="tile"><div class="label">Output tax</div><div class="value num" style="font-size:18px">' + A.compact(to_) + '</div></div><div class="tile"><div class="label">Input tax credit</div><div class="value num" style="font-size:18px">' + A.compact(ti) + '</div></div><div class="tile"><div class="label">Net payable</div><div class="value num ' + (to_ - ti < 0 ? 'cr' : '') + '" style="font-size:18px">' + A.compact(to_ - ti) + '</div></div></div>';
+    var h = '<div class="tiles"><div class="tile"><div class="label">Outward supplies</div><div class="value num">' + A.compact(ow) + '</div></div><div class="tile"><div class="label">Output tax</div><div class="value num">' + A.compact(to_) + '</div></div><div class="tile"><div class="label">Input tax credit</div><div class="value num">' + A.compact(ti) + '</div></div><div class="tile"><div class="label">' + (to_ - ti < 0 ? 'Net credit' : 'Net payable') + '</div><div class="value num">' + A.compact(Math.abs(to_ - ti)) + '</div></div></div>';
     h += '<div class="section-title">By month</div>' + tableCard([{ title: 'Month' }, { title: 'Outward', align: 'r' }, { title: 'Output tax', align: 'r' }, { title: 'Inward', align: 'r' }, { title: 'ITC', align: 'r' }, { title: 'Net', align: 'r' }], g.months.map(function (m) { return [A.fmtMonth(m.month), fmt(m.outward), fmt(m.outputTax), fmt(m.inward), fmt(m.inputTax), fmt(m.net)]; }), [['Total', fmt(ow), fmt(to_), '', fmt(ti), fmt(to_ - ti)]]);
-    if (g.parties.length) h += '<div class="section-title">Outward supplies by party (B2B / B2C)</div>' + tableCard([{ title: 'Party' }, { title: 'GSTIN' }, { title: 'Taxable', align: 'r' }, { title: 'Tax', align: 'r' }], g.parties.map(function (p) { return ['<a href="#/ledger/' + encodeURIComponent(p.party) + '">' + esc(p.party) + '</a><div class="small faint">' + p.count + ' invoice' + (p.count === 1 ? '' : 's') + '</div>', p.gstin || '<span class="faint">B2C</span>', fmt(p.taxable), fmt(p.tax)]; }), null, 'Figures come from sales, purchase, credit note and debit note vouchers only; GST ledgers are recognised by name (' + g.taxLedgers.length + ' found). Adjustment journals are not included.');
+    if (g.parties.length) h += '<div class="section-title">Outward supplies by party (B2B / B2C)</div>' + tableCard([{ title: 'Party' }, { title: 'GSTIN' }, { title: 'Taxable', align: 'r' }, { title: 'Tax', align: 'r' }], g.parties.map(function (p) { return [link(p.party, p.count + ' invoice' + (p.count === 1 ? '' : 's')), p.gstin || { html: '<span class="faint">B2C</span>' }, fmt(p.taxable), fmt(p.tax)]; }), null, 'Figures come from sales, purchase, credit note and debit note vouchers only; GST ledgers are recognised under Duties & Taxes by name (' + g.taxLedgers.length + ' found). Adjustment journals are not included.');
+    var tl = g.taxLedgers.slice().sort(function (a, b) { return a.kind === b.kind ? a.name.localeCompare(b.name) : (a.kind === 'output' ? -1 : 1); });
+    h += '<details class="card grp" style="padding:0"><summary style="list-style:none;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)">Recognised GST ledgers (' + tl.length + ')</span><span class="chev">▾</span></summary><div class="list">' +
+      (tl.length ? tl.map(function (t) { return '<a class="row" href="#/ledger/' + encodeURIComponent(t.name) + '"><div class="main"><div class="t">' + esc(t.name) + '</div><div class="s">' + (t.kind === 'input' ? 'Input tax credit' : 'Output tax') + '</div></div><span class="chev">›</span></a>'; }).join('') : '<div class="empty small">No ledger under Duties &amp; Taxes has GST or Cess in its name.</div>') +
+      '</div><p class="small muted" style="padding:0 16px 14px">A ledger counts as GST when it sits under Duties &amp; Taxes and its name contains CGST, SGST, IGST, UTGST, GST or Cess; "Input", "Purchase" or "ITC" in the name makes it input tax.</p></details>';
     return h;
   };
   A.REPORT_FN.plcmp = function (b, from, to) {
     var cur = b.summary(from, to), prev = b.summary(from - 10000, to - 10000);
-    var rows = [['Sales', cur.sales, prev.sales], ['Direct incomes', cur.directIncome, prev.directIncome], ['Purchases', cur.purchases, prev.purchases], ['Direct expenses', cur.directExpense, prev.directExpense], ['Gross profit', cur.grossProfit, prev.grossProfit], ['Indirect incomes', cur.indirectIncome, prev.indirectIncome], ['Indirect expenses', cur.indirectExpense, prev.indirectExpense], ['Net profit', cur.netProfit, prev.netProfit]];
-    return tableCard([{ title: 'Head' }, { title: A.fmtDate(from) + ' – ' + A.fmtDate(to), align: 'r' }, { title: 'Previous year', align: 'r' }, { title: 'Change', align: 'r' }], rows.map(function (r) { var ch = Math.abs(r[2]) > 0.005 ? Math.round((r[1] - r[2]) / Math.abs(r[2]) * 100) + '%' : (r[1] ? 'new' : ''); return [(r[0] === 'Gross profit' || r[0] === 'Net profit' ? '<b>' + r[0] + '</b>' : r[0]), fmt(r[1]), fmt(r[2]), ch]; }), null, 'Previous year = the same dates one year earlier.');
+    var rows = [['Sales', cur.sales, prev.sales], ['Direct incomes', cur.directIncome, prev.directIncome], ['Purchases', cur.purchases, prev.purchases], ['Direct expenses', cur.directExpense, prev.directExpense], ['Gross profit', cur.grossProfit, prev.grossProfit], ['Indirect incomes', cur.indirectIncome, prev.indirectIncome], ['Indirect expenses', cur.indirectExpense, prev.indirectExpense], ['Net profit (before stock)', cur.netProfit, prev.netProfit]];
+    return tableCard([{ title: 'Head' }, { title: dateRange(from, to), align: 'r' }, { title: 'Previous year', align: 'r' }, { title: 'Change', align: 'r' }], rows.map(function (r) { var ch = Math.abs(r[2]) > 0.005 ? Math.round((r[1] - r[2]) / Math.abs(r[2]) * 100) + '%' : (r[1] ? 'new' : ''); var bold = r[0] === 'Gross profit' || r[0] === 'Net profit (before stock)'; return [bold ? { html: '<b>' + esc(r[0]) + '</b>' } : r[0], fmt(r[1]), fmt(r[2]), ch]; }), null, 'Previous year = the same dates one year earlier. Profit figures exclude opening and closing stock.');
   };
   // data for exports (every report)
   function reportData(key) {
@@ -174,9 +185,16 @@
     function flat(n, depth) { if (!live(n)) return; rows.push([(depth ? '    '.repeat(depth) : '') + n.name, Math.abs(n.closing) || null, A.drcr(n.closing)]); n.groups.forEach(function (g) { flat(g, depth + 1); }); n.ledgers.forEach(function (l) { if (Math.abs(l.closing) > 0.005) rows.push([(depth ? '    '.repeat(depth + 1) : '    ') + l.name, Math.abs(l.closing) || null, A.drcr(l.closing)]); }); }
     switch (key) {
       case 'tb': case 'bs': { var t = b.tree(from, to); cols = [{ title: 'Account', width: 44 }, { title: 'Closing', width: 16, type: 'num', align: 'r' }, { title: 'Dr/Cr', width: 6 }]; t.roots.forEach(function (n) { if (key === 'tb' || n.nature === 'L' || n.nature === 'A') flat(n, 0); }); t.primaryLedgers.forEach(function (l) { if (Math.abs(l.closing) > 0.005) rows.push([l.name, Math.abs(l.closing) || null, A.drcr(l.closing)]); }); break; }
-      case 'pl': { var s = b.summary(from, to); cols = [{ title: 'Head', width: 30 }, { title: 'Amount', width: 16, type: 'num', align: 'r' }]; rows = [['Sales', s.sales], ['Direct incomes', s.directIncome], ['Purchases', s.purchases], ['Direct expenses', s.directExpense], ['Gross profit', s.grossProfit], ['Indirect incomes', s.indirectIncome], ['Indirect expenses', s.indirectExpense], ['Net profit', s.netProfit]]; break; }
-      case 'plcmp': { var c1 = b.summary(from, to), c0 = b.summary(from - 10000, to - 10000); cols = [{ title: 'Head', width: 30 }, { title: 'This period', width: 16, type: 'num', align: 'r' }, { title: 'Previous year', width: 16, type: 'num', align: 'r' }]; rows = [['Sales', c1.sales, c0.sales], ['Purchases', c1.purchases, c0.purchases], ['Gross profit', c1.grossProfit, c0.grossProfit], ['Indirect incomes', c1.indirectIncome, c0.indirectIncome], ['Indirect expenses', c1.indirectExpense, c0.indirectExpense], ['Net profit', c1.netProfit, c0.netProfit]]; break; }
-      case 'ratios': { var r = b.ratios(from, to); cols = [{ title: 'Ratio', width: 30 }, { title: 'Value', width: 16, align: 'r' }]; rows = [['Working capital', fmt(r.workingCapital)], ['Current ratio', r.currentRatio == null ? 'n/a' : r.currentRatio.toFixed(2)], ['Quick ratio', r.quickRatio == null ? 'n/a' : r.quickRatio.toFixed(2)], ['Debt to equity', r.debtEquity == null ? 'n/a' : r.debtEquity.toFixed(2)], ['Gross profit %', r.grossProfitPct == null ? 'n/a' : r.grossProfitPct.toFixed(1)], ['Net profit %', r.netProfitPct == null ? 'n/a' : r.netProfitPct.toFixed(1)], ['Receivable days', r.receivableDays == null ? 'n/a' : Math.round(r.receivableDays)], ['Payable days', r.payableDays == null ? 'n/a' : Math.round(r.payableDays)]]; break; }
+      case 'pl': {
+        var s = b.summary(from, to); cols = [{ title: 'Head', width: 30 }, { title: 'Amount', width: 16, type: 'num', align: 'r' }];
+        rows = [['Sales', s.sales], ['Direct incomes', s.directIncome], ['Purchases', s.purchases], ['Direct expenses', s.directExpense], ['Gross profit', s.grossProfit], ['Indirect incomes', s.indirectIncome], ['Indirect expenses', s.indirectExpense]];
+        var other = Math.round((s.netProfit - (s.grossProfit + s.indirectIncome - s.indirectExpense)) * 100) / 100;
+        if (Math.abs(other) > 0.005) rows.push(['Other income / expenses (net)', other]);
+        rows.push(['Net profit (before stock)', s.netProfit]);
+        break;
+      }
+      case 'plcmp': { var c1 = b.summary(from, to), c0 = b.summary(from - 10000, to - 10000); cols = [{ title: 'Head', width: 30 }, { title: 'This period', width: 16, type: 'num', align: 'r' }, { title: 'Previous year', width: 16, type: 'num', align: 'r' }]; rows = [['Sales', c1.sales, c0.sales], ['Purchases', c1.purchases, c0.purchases], ['Gross profit', c1.grossProfit, c0.grossProfit], ['Indirect incomes', c1.indirectIncome, c0.indirectIncome], ['Indirect expenses', c1.indirectExpense, c0.indirectExpense], ['Net profit (before stock)', c1.netProfit, c0.netProfit]]; break; }
+      case 'ratios': { var r = b.ratios(from, to); cols = [{ title: 'Ratio', width: 30 }, { title: 'Value', width: 16, align: 'r' }]; rows = [['Working capital', fmt(r.workingCapital)], ['Current ratio', r.currentRatio == null ? 'n/a' : r.currentRatio.toFixed(2)], ['Quick ratio', r.quickRatio == null ? 'n/a' : r.quickRatio.toFixed(2)], ['Debt to equity', r.debtEquity == null ? 'n/a' : r.debtEquity.toFixed(2)], ['Gross profit %', r.grossProfitPct == null ? 'n/a' : r.grossProfitPct.toFixed(1)], ['Net profit % (before stock)', r.netProfitPct == null ? 'n/a' : r.netProfitPct.toFixed(1)], ['Receivable days', r.receivableDays == null ? 'n/a' : Math.round(r.receivableDays)], ['Payable days', r.payableDays == null ? 'n/a' : Math.round(r.payableDays)]]; break; }
       case 'cashbank': { cols = [{ title: 'Ledger', width: 40 }, { title: 'Closing', width: 16, type: 'num', align: 'r' }, { title: 'Dr/Cr', width: 6 }]; b.ledgerNames.forEach(function (n) { var c = b.ledgers[n].chain; if (c.indexOf('Cash-in-Hand') !== -1 || c.indexOf('Bank Accounts') !== -1 || c.indexOf('Bank OD A/c') !== -1) { var bl = b.ledgerBalance(n, from, to); if (Math.abs(bl.closing) > 0.005 || bl.count) rows.push([n, Math.abs(bl.closing) || null, A.drcr(bl.closing)]); } }); break; }
       case 'cashflow': { cols = [{ title: 'Month', width: 12 }, { title: 'Inflow', width: 16, type: 'num', align: 'r' }, { title: 'Outflow', width: 16, type: 'num', align: 'r' }, { title: 'Net', width: 16, type: 'num', align: 'r' }]; b.cashFlow(from, to).forEach(function (m) { rows.push([A.fmtMonth(m.month), m.inflow, m.outflow, m.net]); }); break; }
       case 'receivables': case 'payables': { var sm = b.summary(from, to), list = key === 'receivables' ? sm.debtors : sm.creditors; cols = [{ title: 'Party', width: 40 }, { title: 'Closing', width: 16, type: 'num', align: 'r' }, { title: 'Dr/Cr', width: 6 }]; list.forEach(function (d) { rows.push([d.name, Math.abs(d.closing), A.drcr(d.closing)]); }); break; }
@@ -214,68 +232,230 @@
 
   /* ---- voucher page actions --------------------------------------------- */
   function voucherActions(v) {
-    var items = [{ key: 'v-edit:' + v.id, icon: 'edit', label: 'Edit' }, { key: 'v-dup:' + v.id, icon: 'copy', label: 'Duplicate' }, { key: 'v-xml:' + v.id, icon: 'xml', label: 'Tally XML' }, { key: 'v-post:' + v.id, icon: 'post', label: 'Post to Tally' }];
+    // a voucher that came back from Tally but was raised here (fromApp) is Tally's record now: no edit/resend, but its invoice documents stay reachable
+    var items = v.source === 'app'
+      ? [{ key: 'v-edit:' + v.id, icon: 'edit', label: 'Edit' }, { key: 'v-dup:' + v.id, icon: 'copy', label: 'Duplicate' }, { key: 'v-xml:' + v.id, icon: 'xml', label: 'Tally XML' }, { key: 'v-post:' + v.id, icon: 'post', label: 'Post to Tally' }]
+      : [{ key: 'v-dup:' + v.id, icon: 'copy', label: 'Duplicate' }];
+    // label stays "Invoice PDF" for credit notes too: the classic export sheet matches actions by this label; the PDF itself is titled CREDIT NOTE
     if (v.invoice) items.push({ key: 'v-pdf:' + v.id, icon: 'pdf', label: 'Invoice PDF' }, { key: 'v-wa:' + v.id, icon: 'whatsapp', label: 'WhatsApp', cls: 'wa' }, { key: 'v-einv:' + v.id, icon: 'xml', label: 'E-invoice JSON' }, { key: 'v-irn:' + v.id, icon: 'irn', label: 'IRN' });
     return actions(items);
   }
   function duplicate(v) {
     var today = (function () { var n = new Date(); return n.getFullYear() * 10000 + (n.getMonth() + 1) * 100 + n.getDate(); })();
-    if (v.invoice) { var inv = JSON.parse(JSON.stringify(v.invoice)); inv.id = 'app:' + A.uid(); inv.date = today; inv.number = S.book.nextNumber(inv.type || 'Sales'); inv.irn = ''; inv.ackNo = ''; inv.ackDate = ''; S.inv = inv; S.invNewId = inv.id; go('#/invoice'); return; }
-    S.draft = { id: 'app:' + A.uid(), source: 'app', type: v.type, date: today, number: '', party: v.party, narration: v.narration, lines: v.entries.map(function (e) { return { side: e.amount < 0 ? 'Dr' : 'Cr', ledger: e.ledger, amount: Math.abs(e.amount) }; }) };
+    if (v.invoice) { var inv = JSON.parse(JSON.stringify(v.invoice)); inv.id = 'app:' + A.uid(); inv.date = today; inv.number = S.book.nextNumber(inv.type || v.type || 'Sales') || ''; inv.type = inv.type || v.type; inv.irn = ''; inv.ackNo = ''; inv.ackDate = ''; inv.refNumber = ''; inv.refDate = 0; delete inv.edit; delete inv.posted; delete inv.createdAt; S.inv = inv; S.invNewId = inv.id; go('#/invoice'); return; }
+    S.draft = { id: 'app:' + A.uid(), source: 'app', type: v.type, date: today, number: '', party: v.party, narration: v.narration, edit: null, lines: v.entries.map(function (e) { return { side: e.amount < 0 ? 'Dr' : 'Cr', ledger: e.ledger, amount: Math.abs(e.amount) }; }) };
     S.draftNewId = S.draft.id; go('#/entry?type=' + encodeURIComponent(v.type));
   }
 
-  /* ---- backup / restore / lock ---------------------------------------------- */
+  /* ---- backup / restore ----------------------------------------------------- */
   function backup() {
-    var payload = { app: 'tally-viewer', version: 1, exportedAt: new Date().toISOString(), company: S.company, data: S.book.data };
+    var payload = { app: 'tally-viewer', version: 1, exportedAt: new Date().toISOString(), appVersion: window.TV_VERSION || A.VERSION || '', company: S.company, data: S.book.data };
     var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-    A.afterSave(TVExport.save(TVExport.safeName(S.company.name + ' - backup ' + new Date().toISOString().slice(0, 10) + '.json'), blob));
+    return A.afterSave(TVExport.save(TVExport.safeName(S.company.name + ' - backup ' + new Date().toISOString().slice(0, 10) + '.json'), blob));
   }
+  function isPlainObject(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function restore(file) {
     file.text().then(function (txt) {
-      var p = JSON.parse(txt);
-      if (!p || p.app !== 'tally-viewer' || !p.data || !p.company) throw new Error('Not a Tally Viewer backup');
-      var existing = S.companies.filter(function (c) { return c.name.toLowerCase() === p.company.name.toLowerCase(); })[0];
-      var c = existing || { id: A.uid(), name: p.company.name, createdAt: Date.now() };
-      if (existing && !confirm('Replace the data of "' + existing.name + '" with this backup?')) return;
-      c.settings = p.company.settings; c.info = p.company.info; c.counts = p.company.counts; c.minDate = p.company.minDate; c.maxDate = p.company.maxDate; c.updatedAt = Date.now();
-      p.data.id = c.id;
-      return TVDB.putData(p.data).then(function () { return TVDB.putCompany(c); }).then(A.loadCompanies).then(function () { S.book = null; S.company = null; return A.selectCompany(c.id); }).then(function () { toast('Backup restored'); go('#/home'); });
-    }).catch(function (e) { toast('Restore failed: ' + e.message, 5000); });
+      var p; try { p = JSON.parse(txt); } catch (e) { throw new Error('the file is not valid JSON'); }
+      if (!p || p.app !== 'tally-viewer' || !p.data || !p.company) throw new Error('not a Tally Viewer backup');
+      if (p.version !== 1) throw new Error('backup format version ' + p.version + ' is not supported by this app');
+      var d = p.data;
+      if (!Array.isArray(d.vouchers) || !['groups', 'ledgers', 'stockItems', 'voucherTypes'].every(function (k) { return isPlainObject(d[k]); })) throw new Error('the backup is incomplete or damaged (missing vouchers or masters)');
+      var name = String((p.company && p.company.name) || '').trim(); if (!name) throw new Error('the backup has no company name');
+      var book; try { book = new TVModel.Book(d); book.summary(0, 99999999); } catch (e) { throw new Error('the backup data cannot be opened (' + (e && e.message || e) + ')'); }
+      var appCount = d.vouchers.filter(function (v) { return v.source === 'app'; }).length;
+      var when = p.exportedAt && !isNaN(new Date(p.exportedAt)) ? new Date(p.exportedAt).toLocaleString() : 'an unknown date';
+      var desc = 'Backup of "' + name + '" exported ' + when + ': ' + d.vouchers.length + ' vouchers (' + appCount + ' made in this app), ' + Object.keys(d.ledgers).length + ' ledgers, ' + Object.keys(d.stockItems).length + ' stock items.';
+      var existing = S.companies.filter(function (c) { return c.name.toLowerCase() === name.toLowerCase(); })[0], keep = [];
+      return (existing ? TVDB.getData(existing.id).catch(function () { return null; }) : Promise.resolve(null)).then(function (old) {
+        if (existing) {
+          var inBackup = {}; d.vouchers.forEach(function (v) { inBackup[v.id] = 1; });
+          keep = ((old && old.vouchers) || []).filter(function (v) { return v.source === 'app' && !v.posted && !inBackup[v.id]; });
+          var upd = existing.updatedAt ? new Date(existing.updatedAt).toLocaleString() : 'unknown';
+          if (!confirm(desc + '\n\nReplace the data of "' + existing.name + '" on this phone (last updated ' + upd + ', ' + ((existing.counts && existing.counts.vouchers) || 0) + ' vouchers)?' + (keep.length ? '\n\n' + keep.length + ' unposted entr' + (keep.length === 1 ? 'y' : 'ies') + ' made in this app and missing from the backup will be kept.' : ''))) return;
+        } else if (!confirm(desc + '\n\nRestore it as a new company on this phone?')) return;
+        var c = existing || { id: A.uid(), name: name, createdAt: Date.now() };
+        c.settings = p.company.settings || {}; c.info = p.company.info || {}; c.updatedAt = Date.now();
+        d.id = c.id;
+        if (keep.length) { d.vouchers = d.vouchers.concat(keep).sort(TVModel.voucherSort); book = new TVModel.Book(d); }
+        c.counts = { vouchers: d.vouchers.length, ledgers: Object.keys(d.ledgers).length, groups: Object.keys(d.groups).length, stockItems: Object.keys(d.stockItems).length };
+        c.minDate = book.minDate; c.maxDate = book.maxDate;
+        return TVDB.putData(d).then(function () { return TVDB.putCompany(c); }).then(A.loadCompanies).then(function () { S.book = null; S.company = null; S.draft = null; S.inv = null; return A.selectCompany(c.id); }).then(function () { toast('Backup restored' + (keep.length ? ' · ' + keep.length + ' app entr' + (keep.length === 1 ? 'y' : 'ies') + ' kept' : '')); go('#/home'); });
+      });
+    }).catch(function (e) { toast('Restore failed: ' + ((e && e.message) || e), 6000); });
   }
-  function sha(s) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function (buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }); }
-  function pinRec() { return A.lsGet('tv.pin', null); }
+
+  /* ---- app lock ------------------------------------------------------------- */
+  // PIN record in localStorage 'tv.pin': { salt, hash, len, kdf: 'pbkdf2' } (PBKDF2-SHA256, 100k iterations).
+  // Legacy records { salt, hash, len } (one SHA-256 of salt+pin) still verify and are upgraded on the next success.
+  var PIN_ITER = 100000, RELOCK_MS = 60000;
+  function subtle() { return (window.crypto && window.crypto.subtle) || null; }
+  function hex(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
+  function sha(s) { return subtle().digest('SHA-256', new TextEncoder().encode(s)).then(hex); }
+  function pbkdf2(pin, salt) {
+    var enc = new TextEncoder();
+    return subtle().importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']).then(function (key) {
+      return subtle().deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: PIN_ITER, hash: 'SHA-256' }, key, 256);
+    }).then(hex);
+  }
+  function pinRec() { var r = A.lsGet('tv.pin', null); return r && r.hash && r.salt ? r : null; }
+  function setSecure() { try { var br = window.TallyBridge; if (br && typeof br.setSecure === 'function') br.setSecure(!!pinRec()); } catch (e) { /* bridge unavailable */ } }
+  function storePin(pin) {
+    var salt = A.uid() + Math.random().toString(36).slice(2, 10);
+    return pbkdf2(pin, salt).then(function (h) { A.lsSet('tv.pin', { salt: salt, hash: h, len: pin.length, kdf: 'pbkdf2' }); clearFail(); setSecure(); });
+  }
+  function removePin() { lsRemove('tv.pin'); clearFail(); setSecure(); }
+  // resolves true/false; upgrades a legacy SHA-256 record to PBKDF2 on success
+  function verifyPin(pin) {
+    var rec = pinRec(); if (!rec) return Promise.resolve(true);
+    if (rec.kdf === 'pbkdf2') return pbkdf2(pin, rec.salt).then(function (h) { return h === rec.hash; });
+    return sha(rec.salt + pin).then(function (h) { if (h !== rec.hash) return false; return storePin(pin).then(function () { return true; }, function () { return true; }); });
+  }
+  function failRec() { var f = A.lsGet('tv.pinFail', null); return f && typeof f.n === 'number' ? f : { n: 0, until: 0 }; }
+  function recordFail() { var f = failRec(); f.n++; if (f.n >= 5) f.until = Date.now() + Math.min(300, 30 * Math.pow(2, f.n - 5)) * 1000; A.lsSet('tv.pinFail', f); return f; }
+  function clearFail() { lsRemove('tv.pinFail'); }
+  function isLockShown() { return !!document.querySelector('.lock'); }
+  // Full-screen keypad overlay shared by unlock, set, confirm and change. step: { title, sub, len (fixed length → auto-submit; 0 = 4–6 digits with ✓),
+  // onEnter(pin, pad) → Promise, links: [{label, fn(pad)}], hidePad, cancel (Escape closes) }
+  function keypad(step) {
+    var el = document.createElement('div'); el.className = 'lock'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'lock-title');
+    var prevFocus = document.activeElement, pad = { el: el, entered: '', busy: false, step: null, lockedUntil: 0, timer: 0 };
+    el.innerHTML = '<div class="logo" aria-hidden="true">TV</div><h2 id="lock-title"></h2><p class="small muted" id="lock-sub" style="text-align:center;margin:-8px 0 0;max-width:300px"></p>' +
+      '<div class="dots" role="status" aria-live="polite" aria-label="No digits entered"></div><div class="err" id="lock-err" role="alert"></div>' +
+      '<div class="pad">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, 'ok', 0, 'del'].map(function (k) { return k === 'ok' ? '<button data-k="ok" aria-label="Enter">✓</button>' : k === 'del' ? '<button data-k="del" aria-label="Delete digit">⌫</button>' : '<button data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>' +
+      '<div class="btn-row" id="lock-links" style="justify-content:center"></div>';
+    function maxLen() { return pad.step.len || 6; }
+    function dots() {
+      var box = el.querySelector('.dots'), is = box.querySelectorAll('i');
+      is.forEach(function (d, i) { d.classList.toggle('on', i < pad.entered.length); });
+      box.setAttribute('aria-label', pad.entered.length ? pad.entered.length + ' of ' + (pad.step.len || 'up to 6') + ' digits entered' : 'No digits entered');
+    }
+    pad.setStep = function (s) {
+      pad.step = s; pad.entered = ''; pad.busy = false;
+      el.querySelector('#lock-title').textContent = s.title; el.querySelector('#lock-sub').textContent = s.sub || '';
+      var box = el.querySelector('.dots'); box.innerHTML = '<i></i>'.repeat(maxLen()); box.hidden = !!s.hidePad; el.querySelector('.pad').hidden = !!s.hidePad; dots();
+      el.querySelector('#lock-err').textContent = '';
+      var links = el.querySelector('#lock-links'), ls = (s.links || []).filter(Boolean);
+      links.innerHTML = ls.map(function (l, i) { return '<button class="btn' + (l.primary ? ' primary' : '') + '" data-link="' + i + '">' + esc(l.label) + '</button>'; }).join('');
+      links.querySelectorAll('[data-link]').forEach(function (b) { b.onclick = function () { ls[+b.getAttribute('data-link')].fn(pad); }; });
+      setTimeout(function () { var f = s.hidePad ? el.querySelector('#lock-links .btn') : el.querySelector('.pad button'); if (f) f.focus(); }, 30);
+    };
+    pad.error = function (msg) { el.querySelector('#lock-err').textContent = msg || ''; pad.entered = ''; dots(); };
+    pad.close = function () {
+      clearTimeout(pad.timer); el.remove(); document.removeEventListener('keydown', onKey, true);
+      if (!isLockShown()) document.body.classList.remove('locked');
+      try { if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus(); } catch (e) { /* ignore */ }
+    };
+    pad.lockout = function (until) {
+      pad.lockedUntil = until; var btns = el.querySelectorAll('.pad button');
+      clearTimeout(pad.timer);
+      (function tick() {
+        var rec = failRec(); if (rec.until < until) until = rec.until; // the persisted record wins (cleared elsewhere → lockout ends)
+        var left = Math.ceil((until - Date.now()) / 1000);
+        if (left <= 0) { btns.forEach(function (b) { b.disabled = false; }); pad.lockedUntil = 0; pad.error(''); return; }
+        btns.forEach(function (b) { b.disabled = true; }); pad.entered = ''; dots();
+        el.querySelector('#lock-err').textContent = 'Too many wrong PINs. Try again in ' + left + ' s';
+        pad.timer = setTimeout(tick, 1000);
+      })();
+    };
+    function submit() {
+      if (pad.busy || pad.lockedUntil > Date.now()) return;
+      if (pad.entered.length < 4) { pad.error('Enter 4 to 6 digits'); return; }
+      pad.busy = true; var pin = pad.entered;
+      Promise.resolve(pad.step.onEnter(pin, pad)).then(function () { pad.busy = false; }, function (e) { pad.busy = false; pad.error((e && e.message) || 'Something went wrong'); });
+    }
+    function press(k) {
+      if (pad.busy || pad.lockedUntil > Date.now() || pad.step.hidePad) return;
+      if (k === 'ok') { submit(); return; }
+      if (k === 'del') pad.entered = pad.entered.slice(0, -1); else if (pad.entered.length < maxLen()) pad.entered += k;
+      dots();
+      if (pad.step.len && pad.entered.length === pad.step.len) submit();
+    }
+    function onKey(ev) {
+      if (/^[0-9]$/.test(ev.key)) press(ev.key); else if (ev.key === 'Backspace') press('del'); else if (ev.key === 'Enter' && !ev.target.closest('#lock-links')) press('ok'); else if (ev.key === 'Escape' && pad.step.cancel) pad.close(); else return;
+      ev.preventDefault(); ev.stopPropagation();
+    }
+    el.addEventListener('click', function (ev) { var b = ev.target.closest('[data-k]'); if (b) press(b.getAttribute('data-k')); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(el); document.body.classList.add('locked');
+    pad.setStep(step);
+    return pad;
+  }
+  function wrongPin(p) { var f = recordFail(); if (f.until > Date.now()) p.lockout(f.until); else p.error('Wrong PIN' + (f.n >= 3 ? ' · ' + (5 - f.n) + ' more before a wait' : '')); }
+  function unlockStep() {
+    var rec = pinRec();
+    return { title: 'Enter PIN', len: rec && rec.len > 0 && rec.len <= 6 ? rec.len : 0, onEnter: function (pin, p) {
+      return verifyPin(pin).then(function (ok) { if (ok) { clearFail(); p.close(); if (A.announce) A.announce('Unlocked'); } else wrongPin(p); });
+    }, links: [{ label: 'Forgot PIN?', fn: forgotPin }] };
+  }
   function showLock() {
-    var rec = pinRec(); if (!rec) return;
-    var el = document.createElement('div'); el.className = 'lock'; var entered = '';
-    el.innerHTML = '<div class="logo">TV</div><h2>Enter PIN</h2><div class="dots">' + '<i></i>'.repeat(rec.len) + '</div><div class="err" id="lock-err"></div><div class="pad">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, '⌫'].map(function (k) { return k === '' ? '<span></span>' : '<button data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>';
-    document.body.appendChild(el);
-    el.addEventListener('click', function (ev) {
-      var b = ev.target.closest('[data-k]'); if (!b) return; var k = b.getAttribute('data-k');
-      if (k === '⌫') entered = entered.slice(0, -1); else if (entered.length < rec.len) entered += k;
-      el.querySelectorAll('.dots i').forEach(function (d, i) { d.classList.toggle('on', i < entered.length); });
-      if (entered.length === rec.len) sha(rec.salt + entered).then(function (h) { if (h === rec.hash) el.remove(); else { document.getElementById('lock-err').textContent = 'Wrong PIN'; entered = ''; el.querySelectorAll('.dots i').forEach(function (d) { d.classList.remove('on'); }); } });
+    var rec = pinRec(); if (!rec || isLockShown()) return;
+    setSecure();
+    if (!subtle()) { toast('App lock needs a secure (https) page; the PIN cannot be checked here.', 6000); return; }
+    var pad = keypad(unlockStep());
+    var f = failRec(); if (f.until > Date.now()) pad.lockout(f.until);
+  }
+  function forgotPin(pad) {
+    pad.setStep({ title: 'Forgot PIN?', hidePad: true,
+      sub: 'A forgotten PIN cannot be recovered. The only way out is to reset the lock: your companies and entries stay on this phone (the PIN does not encrypt them), but anyone holding the phone could do the same, so take a backup first if you can.',
+      links: [
+        { label: 'Back', fn: function (p) { p.setStep(unlockStep()); } },
+        S.book ? { label: 'Backup this company', fn: function () { backup(); } } : null,
+        { label: 'Reset lock', fn: function (p) { if (!confirm('Remove the app lock? Your data stays on this phone.')) return; removePin(); p.close(); toast('App lock removed'); if (A.announce) A.announce('App lock removed'); } }
+      ] });
+  }
+  // More → App lock: set a PIN (enter twice), or after verifying the current PIN change or remove it.
+  function setPin() {
+    if (!subtle()) { toast('App lock needs a secure (https) page', 5000); return; }
+    if (!pinRec()) { choosePin(); return; }
+    var pad = keypad({ title: 'Enter current PIN', len: pinRec().len || 0, cancel: true, links: [{ label: 'Cancel', fn: function (p) { p.close(); } }, { label: 'Forgot PIN?', fn: forgotPin }], onEnter: function (pin, p) {
+      return verifyPin(pin).then(function (ok) { if (!ok) { wrongPin(p); return; } clearFail(); p.close(); lockOptions(); });
+    } });
+    var f = failRec(); if (f.until > Date.now()) pad.lockout(f.until);
+  }
+  function lockOptions() {
+    A.sheet('<h3>App lock</h3><button class="opt" data-lk="change">Change PIN</button><button class="opt" data-lk="remove">Remove app lock</button>', function (ev, bg) {
+      var o = ev.target.closest('[data-lk]'); if (!o) return; bg.remove();
+      if (o.getAttribute('data-lk') === 'change') choosePin(); else { removePin(); toast('App lock removed'); A.render(); }
     });
   }
-  function setPin() {
-    var pin = prompt(pinRec() ? 'Enter a new 4–6 digit PIN (leave blank to remove the lock)' : 'Choose a 4–6 digit PIN');
-    if (pin === null) return;
-    pin = pin.trim();
-    if (!pin) { if (pinRec() && confirm('Remove the app lock?')) { localStorage.removeItem('tv.pin'); toast('App lock removed'); A.render(); } return; }
-    if (!/^\d{4,6}$/.test(pin)) { toast('PIN must be 4 to 6 digits'); return; }
-    var salt = A.uid();
-    sha(salt + pin).then(function (h) { A.lsSet('tv.pin', { salt: salt, hash: h, len: pin.length }); toast('App lock set'); A.render(); });
+  function choosePin() {
+    var first = '';
+    var step1 = { title: 'Choose a 4–6 digit PIN', sub: 'Asked when the app opens and after a minute in the background. It is a screen lock: data on this phone is not encrypted.', len: 0, cancel: true,
+      links: [{ label: 'Cancel', fn: function (p) { p.close(); } }],
+      onEnter: function (pin, p) {
+        first = pin;
+        p.setStep({ title: 'Enter it again', len: pin.length, cancel: true, links: [{ label: 'Start over', fn: function (p2) { p2.setStep(step1); } }, { label: 'Cancel', fn: function (p2) { p2.close(); } }],
+          onEnter: function (pin2, p2) {
+            if (pin2 !== first) { p2.error('PINs do not match'); return; }
+            return storePin(pin2).then(function () { p2.close(); toast('App lock set'); if (A.announce) A.announce('App lock set'); A.render(); });
+          } });
+      } };
+    keypad(step1);
   }
+  // Relock after the app has been in the background for a while. Android calls TVRelock() → TVF.relock() on resume;
+  // the browser path uses visibilitychange. relock() applies the 60 s rule when it knows how long the page was hidden.
+  var hiddenAt = 0, lastReturn = 0, lastAway = Infinity;
+  function relock(force) {
+    if (!pinRec() || isLockShown()) return;
+    if (!force) { var away = hiddenAt ? Date.now() - hiddenAt : (Date.now() - lastReturn < 5000 ? lastAway : Infinity); if (away < RELOCK_MS) return; }
+    showLock();
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { hiddenAt = hiddenAt || Date.now(); return; }
+    if (hiddenAt) { lastAway = Date.now() - hiddenAt; lastReturn = Date.now(); hiddenAt = 0; if (lastAway >= RELOCK_MS) relock(true); }
+  });
   function moreRows() {
-    return '<button class="row" data-faction="lock"><div class="main"><div class="t">App lock</div><div class="s">' + (pinRec() ? 'PIN required when the app opens' : 'Protect the app with a PIN') + '</div></div><span class="chev">›</span></button>' +
+    return '<button class="row" data-faction="lock"><div class="main"><div class="t">App lock</div><div class="s">' + (pinRec() ? 'PIN asked when the app opens and after a minute in the background · change or remove' : 'Protect the app with a PIN (screen lock; data on this phone is not encrypted)') + '</div></div><span class="chev">›</span></button>' +
       (S.book ? '<button class="row" data-faction="backup"><div class="main"><div class="t">Backup this company</div><div class="s">Everything incl. entries made here, as a file</div></div><span class="chev">›</span></button>' : '') +
-      '<button class="row" data-faction="restore"><div class="main"><div class="t">Restore from backup</div><div class="s">Load a Tally Viewer backup file</div></div><span class="chev">›</span></button><input type="file" id="restore-file" class="hidden" accept=".json,application/json">';
+      '<button class="row" data-faction="restore"><div class="main"><div class="t">Restore from backup</div><div class="s">Load a Tally Viewer backup file</div></div><span class="chev">›</span></button><input type="file" id="restore-file" class="hidden" aria-label="Restore backup file" accept=".json,application/json">';
   }
 
   /* ---- dispatcher -------------------------------------------------------- */
   document.addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-faction]'); if (!el) return;
     var raw = el.getAttribute('data-faction'), i = raw.indexOf(':'), key = i < 0 ? raw : raw.slice(0, i), arg = i < 0 ? '' : raw.slice(i + 1);
+    function byId(id) { return S.book.vouchers.filter(function (x) { return x.id === id; })[0]; }
     try {
       switch (key) {
         case 'ledger-wa': ledgerWhatsapp(arg); break;
@@ -284,20 +464,20 @@
         case 'ledger-pin': togglePin(arg); break;
         case 'report-xlsx': case 'report-pdf': { var r = reportExport(arg, key.split('-')[1]); if (r) A.afterSave(TVExport.save(r.name, r.blob)); break; }
         case 'report-wa': { var title = (A.REPORTS.filter(function (x) { return x[0] === arg; })[0] || ['', arg])[1]; whatsappSheet({ title: 'Send ' + title, phone: '', options: [{ label: 'PDF', hint: title + ' · ' + A.periodLabel(), build: function () { var x = reportExport(arg, 'pdf'); return { name: x.name, blob: x.blob, text: title + ' of ' + S.company.name + ' for ' + A.periodLabel() }; } }, { label: 'Excel', hint: 'Spreadsheet', build: function () { var x = reportExport(arg, 'xlsx'); return { name: x.name, blob: x.blob, text: title + ' of ' + S.company.name + ' for ' + A.periodLabel() }; } }] }); break; }
-        case 'v-edit': { var v = S.book.vouchers.filter(function (x) { return x.id === arg; })[0]; go(v.invoice ? '#/invoice?edit=' + encodeURIComponent(arg) : '#/entry?edit=' + encodeURIComponent(arg)); break; }
-        case 'v-dup': duplicate(S.book.vouchers.filter(function (x) { return x.id === arg; })[0]); break;
+        case 'v-edit': { var v = byId(arg); if (!v) break; go(v.invoice ? '#/invoice?edit=' + encodeURIComponent(arg) : '#/entry?edit=' + encodeURIComponent(arg)); break; }
+        case 'v-dup': { var dv = byId(arg); if (dv) duplicate(dv); break; }
         case 'v-xml': A.exportTallyXml(S.book.vouchers.filter(function (x) { return x.id === arg; })); break;
         case 'v-post': A.postToTally(S.book.vouchers.filter(function (x) { return x.id === arg; })); break;
-        case 'v-pdf': A.exportInvoicePdf(S.book.vouchers.filter(function (x) { return x.id === arg; })[0]); break;
-        case 'v-einv': A.exportEInvoice(S.book.vouchers.filter(function (x) { return x.id === arg; })[0]); break;
-        case 'v-irn': A.enterIrn(S.book.vouchers.filter(function (x) { return x.id === arg; })[0]); break;
-        case 'v-wa': { var iv = S.book.vouchers.filter(function (x) { return x.id === arg; })[0], pl = S.book.ledgers[iv.party], ph = pl && pl.info ? pl.info.phone : ''; whatsappSheet({ title: 'Send invoice ' + iv.number, phone: ph, options: [{ label: 'Invoice PDF', hint: 'Tax invoice for ' + iv.party, build: function () { return { name: TVExport.safeName(S.company.name + ' - Invoice ' + iv.number + '.pdf'), blob: TVEntry.invoicePdf(A.einvoiceDoc(iv), TVExport), text: 'Invoice ' + iv.number + ' dated ' + A.fmtDate(iv.date) + ' for Rs ' + fmt(iv.total) + ' from ' + S.company.name + '.' }; } }] }); break; }
+        case 'v-pdf': { var pv = byId(arg); if (pv) A.exportInvoicePdf(pv); break; }
+        case 'v-einv': { var ev_ = byId(arg); if (ev_) A.exportEInvoice(ev_); break; }
+        case 'v-irn': { var rv = byId(arg); if (rv) A.enterIrn(rv); break; }
+        case 'v-wa': { var iv = byId(arg); if (!iv) break; var pl = S.book.ledgers[iv.party], ph = pl && pl.info ? pl.info.phone : '', cn = isCreditNote(iv.type), what = cn ? 'Credit note' : 'Invoice'; whatsappSheet({ title: 'Send ' + what.toLowerCase() + ' ' + iv.number, phone: ph, options: [{ label: what + ' PDF', hint: (cn ? 'Credit note for ' : 'Tax invoice for ') + iv.party, build: function () { return { name: TVExport.safeName(S.company.name + ' - ' + what + ' ' + iv.number + '.pdf'), blob: TVEntry.invoicePdf(A.einvoiceDoc(iv), TVExport), text: what + ' ' + iv.number + ' dated ' + A.fmtDate(iv.date) + ' for Rs ' + fmt(iv.total) + ' from ' + S.company.name + '.' }; } }] }); break; }
         case 'lock': setPin(); break;
         case 'backup': backup(); break;
-        case 'restore': { var inp = document.getElementById('restore-file'); inp.onchange = function () { if (inp.files[0]) restore(inp.files[0]); }; inp.click(); break; }
+        case 'restore': { var inp = document.getElementById('restore-file'); inp.onchange = function () { if (inp.files[0]) restore(inp.files[0]); inp.value = ''; }; inp.click(); break; }
       }
     } catch (err) { toast('Action failed: ' + err.message, 5000); }
   });
 
-  window.TVF = { actions: actions, ledgerActions: ledgerActions, ledgerMonthlyCard: ledgerMonthlyCard, reportSections: reportSections, reportActions: reportActions, reportData: reportData, homeWidgets: homeWidgets, voucherActions: voucherActions, moreRows: moreRows, showLock: showLock, share: share, whatsappSheet: whatsappSheet, pins: pins };
+  window.TVF = { actions: actions, ledgerActions: ledgerActions, ledgerMonthlyCard: ledgerMonthlyCard, reportSections: reportSections, reportActions: reportActions, reportData: reportData, homeWidgets: homeWidgets, voucherActions: voucherActions, moreRows: moreRows, showLock: showLock, relock: relock, tableCard: tableCard, share: share, whatsappSheet: whatsappSheet, pins: pins };
 })();

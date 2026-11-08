@@ -1,22 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Only used to reach TallyPrime's XML server on your own Wi-Fi (Sync screen). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Only used to reach TallyPrime's XML server on your own Wi-Fi (Sync screen) and for the
+         optional IFSC lookup; MainActivity refuses every other host. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <queries>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
     </queries>
+    <!-- allowBackup=false: the books and the PIN record never leave the phone through Auto Backup;
+         the in-app Backup/Restore is the supported way to move data.
+         usesCleartextTraffic stays on because TallyPrime's XML server is HTTP-only; the bridge
+         only connects to LAN addresses. -->
     <application
         android:usesCleartextTraffic="true"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.TallyViewer">
+        android:theme="@style/Theme.TallyViewer"
+        tools:ignore="UnusedAttribute,DataExtractionRules">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -27,10 +34,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Lets "Open with" on an .xml file land in the app -->
+            <!-- "Open with" / "Share to Tally Viewer" for Tally XML exports (handled by MainActivity.handleIntent) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/xml" />
                 <data android:mimeType="application/xml" />

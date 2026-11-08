@@ -34,17 +34,66 @@
   var TRACKED_PAIR = { 'Sales': 'Delivery Note', 'Purchase': 'Receipt Note' };
 
   function isPrimary(p) { return !p || p === 'Primary' || p.toLowerCase() === 'primary'; }
+  function schemaVersion() { return root.TV_DATA_SCHEMA || 2; }
   function emptyData(id) {
-    return { id: id, groups: {}, ledgers: {}, stockItems: {}, stockGroups: {}, units: {}, voucherTypes: {}, vouchers: [], files: [] };
+    return { id: id, schema: schemaVersion(), groups: {}, ledgers: {}, stockItems: {}, stockGroups: {}, units: {}, voucherTypes: {}, vouchers: [], files: [] };
+  }
+  // Fill in anything an older stored record lacks and stamp the schema number. Mutates and returns data.
+  var MASTER_KEYS = ['groups', 'ledgers', 'stockItems', 'stockGroups', 'units', 'voucherTypes'];
+  function migrate(data) {
+    if (!data || typeof data !== 'object') data = emptyData('');
+    for (var i = 0; i < MASTER_KEYS.length; i++) { var k = MASTER_KEYS[i]; if (!data[k] || typeof data[k] !== 'object' || Array.isArray(data[k])) data[k] = {}; }
+    if (!Array.isArray(data.vouchers)) data.vouchers = [];
+    if (!Array.isArray(data.files)) data.files = [];
+    for (i = 0; i < data.vouchers.length; i++) { var v = data.vouchers[i]; if (!Array.isArray(v.entries)) v.entries = []; if (!Array.isArray(v.items)) v.items = []; }
+    data.schema = schemaVersion();
+    return data;
+  }
+  // A folder import is a full snapshot of the company: drop every master and every Tally voucher,
+  // keep what was entered in this app. Tally vouchers that were matched to a posted app entry
+  // (fromApp) revert to their app form so the invoice/IRN data survives and the next import can
+  // match them again.
+  function resetForSnapshot(data) {
+    for (var i = 0; i < MASTER_KEYS.length; i++) data[MASTER_KEYS[i]] = {};
+    var keep = [];
+    for (i = 0; i < data.vouchers.length; i++) {
+      var v = data.vouchers[i];
+      if (v.source === 'app') { keep.push(v); continue; }
+      if (v.fromApp && v.appId) {
+        v.id = v.appId; v.source = 'app'; v.posted = true; v.postedAt = v.postedAt || Date.now();
+        delete v.fromApp; delete v.appId; delete v.tallyId;
+        keep.push(v);
+      }
+    }
+    data.vouchers = keep;
+    data.snapshotAt = Date.now();
+    return data;
   }
 
   /* ---- Merging an import into stored data ------------------------------- */
 
+  function debitTotal(v) {
+    var total = 0, ent = v.entries || [];
+    for (var i = 0; i < ent.length; i++) if (ent[i].amount < 0) total += -ent[i].amount;
+    return Math.round(total * 100) / 100;
+  }
   function voucherKey(v) {
     if (v.id) return v.id;
-    var total = 0;
-    for (var i = 0; i < v.entries.length; i++) if (v.entries[i].amount < 0) total += -v.entries[i].amount;
-    return 'k|' + v.date + '|' + v.type + '|' + v.number + '|' + total.toFixed(2);
+    return 'k|' + v.date + '|' + v.type + '|' + v.number + '|' + debitTotal(v).toFixed(2);
+  }
+  // Content key used to recognise the same transaction coming back from Tally with a different id.
+  function compositeKey(v) {
+    return v.date + '|' + v.type + '|' + String(v.number || '').trim().toLowerCase() + '|' + debitTotal(v).toFixed(2);
+  }
+  var COLL = new Intl.Collator(undefined, { numeric: true });
+  function voucherSort(a, b) { return a.date - b.date || COLL.compare(String(a.number || ''), String(b.number || '')); }
+  // Carry what the app knows about a voucher onto the copy that came back from Tally.
+  function carryApp(v, old) {
+    v.appId = old.appId || old.id;
+    if (old.invoice) v.invoice = old.invoice;
+    if (old.createdAt) v.createdAt = old.createdAt;
+    if (old.postedAt) v.postedAt = old.postedAt;
+    v.fromApp = true;
   }
   function mergeMasters(map, list) {
     var n = { added: 0, updated: 0, deleted: 0 };
@@ -65,20 +114,40 @@
       stockGroups: mergeMasters(data.stockGroups, result.stockGroups || []),
       units: mergeMasters(data.units, result.units || []),
       voucherTypes: mergeMasters(data.voucherTypes, result.voucherTypes),
-      vouchers: { added: 0, updated: 0, deleted: 0 }
+      vouchers: { added: 0, updated: 0, deleted: 0, matched: 0 }
     };
-    var idx = {};
-    data.vouchers.forEach(function (v, i) { idx[voucherKey(v)] = i; });
+    var idx = {}, appIdx = {};
+    data.vouchers.forEach(function (v, i) {
+      idx[voucherKey(v)] = i;
+      if (v.source === 'app' && v.posted) appIdx[compositeKey(v)] = i;
+    });
     var removed = {};
     result.vouchers.forEach(function (v) {
       var k = voucherKey(v);
       if (v.action === 'Delete') { if (idx[k] !== undefined) { removed[idx[k]] = true; counts.vouchers.deleted++; } return; }
       delete v.action;
-      if (idx[k] !== undefined) { data.vouchers[idx[k]] = v; counts.vouchers.updated++; }
-      else { idx[k] = data.vouchers.length; data.vouchers.push(v); counts.vouchers.added++; }
+      if (idx[k] !== undefined) {
+        var prev = data.vouchers[idx[k]];
+        if (prev.fromApp) carryApp(v, prev);
+        data.vouchers[idx[k]] = v; counts.vouchers.updated++;
+        return;
+      }
+      if (v.source !== 'app') {
+        // An entry made here, posted to Tally and now coming back with Tally's id: replace it in place.
+        var ck = compositeKey(v), ai = appIdx[ck];
+        if (ai !== undefined) {
+          var old = data.vouchers[ai];
+          carryApp(v, old);
+          data.vouchers[ai] = v;
+          delete idx[voucherKey(old)]; idx[k] = ai; delete appIdx[ck];
+          counts.vouchers.matched++;
+          return;
+        }
+      }
+      idx[k] = data.vouchers.length; data.vouchers.push(v); counts.vouchers.added++;
     });
     if (counts.vouchers.deleted) data.vouchers = data.vouchers.filter(function (v, i) { return !removed[i]; });
-    data.vouchers.sort(function (a, b) { return a.date - b.date || String(a.number).localeCompare(String(b.number), undefined, { numeric: true }); });
+    data.vouchers.sort(voucherSort);
     if (fileMeta) data.files.push({ name: fileMeta.name, bytes: fileMeta.bytes, at: Date.now(), counts: counts, company: result.company || '' });
     return counts;
   }
@@ -86,7 +155,7 @@
   /* ---- Book --------------------------------------------------------------- */
 
   function Book(data) {
-    this.data = data;
+    this.data = migrate(data);
     this.build();
   }
 
@@ -118,14 +187,24 @@
     this.ledgerEntries = {};
     this.minDate = 0; this.maxDate = 0;
     this.typeCounts = {};
-    for (var i = 0; i < d.vouchers.length; i++) {
-      var v = d.vouchers[i];
+    // content keys of every Tally voucher, so a posted app entry that already came back from Tally is not counted twice
+    var tallyKeys = {}, i, k, v;
+    for (i = 0; i < d.vouchers.length; i++) { v = d.vouchers[i]; if (v.source !== 'app') tallyKeys[compositeKey(v)] = i; }
+    for (i = 0; i < d.vouchers.length; i++) {
+      v = d.vouchers[i];
       v.idx = i;
       v.base = this.baseType(v.type);
       v.affects = !v.cancelled && !v.optional && !NON_ACCOUNTING[v.base];
-      v.total = 0;
-      for (var k = 0; k < v.entries.length; k++) if (v.entries[k].amount < 0) v.total += -v.entries[k].amount;
-      v.total = Math.round(v.total * 100) / 100;
+      v.total = debitTotal(v);
+      if (v.source === 'app') {
+        v.superseded = !!(v.posted && tallyKeys[compositeKey(v)] !== undefined);
+        if (v.superseded) v.affects = false;
+      }
+      // lowercased search haystack, kept off the stored record (non-enumerable → not persisted or backed up)
+      var hay = (v.party || '') + ' ' + (v.narration || '') + ' ' + (v.number || '') + ' ' + (v.ref || '') + ' ' + v.type + ' ' + v.total + (v.cancelled ? ' cancelled' : '') + (v.optional ? ' optional' : '');
+      for (k = 0; k < v.entries.length; k++) hay += ' ' + v.entries[k].ledger;
+      for (k = 0; k < v.items.length; k++) hay += ' ' + v.items[k].item;
+      Object.defineProperty(v, 'hay', { value: hay.toLowerCase(), writable: true, configurable: true, enumerable: false });
       if (!this.minDate || v.date < this.minDate) this.minDate = v.date;
       if (v.date > this.maxDate) this.maxDate = v.date;
       this.typeCounts[v.type] = (this.typeCounts[v.type] || 0) + 1;
@@ -233,14 +312,21 @@
   // {opening, debit, credit, closing} signed (negative = Dr)
   Book.prototype.ledgerBalance = function (name, from, to) {
     var led = this.ledgers[name], ent = this.ledgerEntries[name] || [];
-    var opening = led ? led.opening : 0, debit = 0, credit = 0;
+    var opening = led ? led.opening : 0, debit = 0, credit = 0, count = 0;
     for (var i = 0; i < ent.length; i++) {
       var e = ent[i];
       if (e.d < from) opening += e.a;
-      else if (e.d <= to) { if (e.a < 0) debit += -e.a; else credit += e.a; }
+      else if (e.d <= to) { if (e.a < 0) debit += -e.a; else credit += e.a; count++; }
       else break;
     }
-    return { opening: opening, debit: debit, credit: credit, closing: opening + credit - debit, count: ent.length };
+    return { opening: opening, debit: debit, credit: credit, closing: opening + credit - debit, count: count };
+  };
+
+  // Sum of every ledger's opening balance (signed): non-zero when the opening balances in Tally do not tie.
+  Book.prototype.openingDifference = function () {
+    var sum = 0;
+    for (var name in this.ledgers) sum += this.ledgers[name].opening || 0;
+    return Math.round(sum * 100) / 100;
   };
 
   // Full group tree with balances for a period. Cached per period.
@@ -277,6 +363,8 @@
   };
 
   Book.prototype.summary = function (from, to) {
+    var ck = 's:' + from + '-' + to;
+    if (this.cache[ck]) return this.cache[ck];
     var t = this.tree(from, to), self = this;
     function g(name) { return t.byName[name] ? t.byName[name] : { closing: 0, debit: 0, credit: 0 }; }
     var sales = g('Sales Accounts'), purch = g('Purchase Accounts');
@@ -309,6 +397,7 @@
     creditors.sort(function (a, b) { return b.closing - a.closing; });
     s.debtors = debtors; s.creditors = creditors;
     s.monthly = this.monthly(from, to);
+    this.cache[ck] = s;
     return s;
   };
 
@@ -342,15 +431,7 @@
       if (v.date < from || v.date > to) continue;
       if (opts.type && v.type !== opts.type) continue;
       if (opts.base && v.base !== opts.base) continue;
-      if (q) {
-        var hay = (v.party + ' ' + v.narration + ' ' + v.number + ' ' + v.ref + ' ' + v.type + ' ' + v.total + (v.cancelled ? ' cancelled' : '') + (v.optional ? ' optional' : '')).toLowerCase();
-        if (hay.indexOf(q) === -1) {
-          var hit = false;
-          for (var k = 0; k < v.entries.length && !hit; k++) if (v.entries[k].ledger.toLowerCase().indexOf(q) !== -1) hit = true;
-          for (k = 0; k < v.items.length && !hit; k++) if (v.items[k].item.toLowerCase().indexOf(q) !== -1) hit = true;
-          if (!hit) continue;
-        }
-      }
+      if (q && (v.hay || '').indexOf(q) === -1) continue;
       out.push(v);
     }
     return out;
@@ -381,18 +462,45 @@
     return { balance: b, rows: rows };
   };
 
-  // Next voucher number for a type: keeps the prefix and zero padding of the highest number seen
+  // Split a voucher number into prefix + serial + suffix. The serial is the first digit run that is
+  // not part of a financial-year token (24-25, 2024-25, 2024-2025) and not a bare calendar year next
+  // to another run, so 'INV/001/24-25' → 001, '25-26/RENT/023' → 023 and '2024-0001' → 0001.
+  // Returns null when there is no serial.
+  function isFyPair(a, b) {
+    var A = +a, B = +b;
+    if (b.length === 2) return (a.length === 2 || a.length === 4) && (A + 1) % 100 === B;
+    if (b.length === 4) return a.length === 4 ? A + 1 === B : a.length === 2 && 2000 + A + 1 === B;
+    return false;
+  }
+  function splitNumber(s) {
+    s = String(s == null ? '' : s).trim();
+    var runs = [], re = /\d+/g, m;
+    while ((m = re.exec(s))) runs.push({ s: m[0], start: m.index, end: m.index + m[0].length, fy: false });
+    for (var i = 0; i + 1 < runs.length; i++) {
+      if (runs[i].end + 1 === runs[i + 1].start && s.charAt(runs[i].end) === '-' && isFyPair(runs[i].s, runs[i + 1].s)) { runs[i].fy = runs[i + 1].fy = true; i++; }
+    }
+    var free = runs.filter(function (r) { return !r.fy; });
+    if (free.length > 1) for (i = 0; i < free.length; i++) if (/^(?:19|20)\d\d$/.test(free[i].s)) free[i].fy = true;
+    for (i = 0; i < runs.length; i++) if (!runs[i].fy) return { prefix: s.slice(0, runs[i].start), serial: runs[i].s, suffix: s.slice(runs[i].end).trim() };
+    return null;
+  }
+  // Next voucher number for a type: the most recent voucher of the type sets the shape (prefix and
+  // suffix); the highest serial within that shape is incremented, keeping its zero padding.
+  // Returns '' when no voucher of the type has a serial, so the caller can ask for a number.
   Book.prototype.nextNumber = function (type) {
-    var max = -1, prefix = '', width = 0;
-    for (var i = 0; i < this.vouchers.length; i++) {
-      var v = this.vouchers[i];
-      if (v.type !== type) continue;
-      var m = /^(.*?)(\d+)\s*$/.exec(String(v.number || ''));
-      if (m && +m[2] > max) { max = +m[2]; prefix = m[1]; width = m[2].length; }
+    var shape = null, i, v, p;
+    for (i = this.vouchers.length - 1; i >= 0 && !shape; i--) { v = this.vouchers[i]; if (v.type === type && (p = splitNumber(v.number))) shape = p; }
+    if (!shape) return '';
+    var max = -1, width = 0;
+    for (i = 0; i < this.vouchers.length; i++) {
+      v = this.vouchers[i];
+      if (v.type !== type || !(p = splitNumber(v.number))) continue;
+      if (p.prefix !== shape.prefix || p.suffix !== shape.suffix) continue;
+      if (+p.serial > max) { max = +p.serial; width = p.serial.length; }
     }
     var n = String(max + 1);
-    while (n.length < width && /^0/.test(String(max).padStart(width, '0'))) n = '0' + n;
-    return prefix + n;
+    while (n.length < width) n = '0' + n;
+    return shape.prefix + n + shape.suffix;
   };
 
   // Month-wise summary of one ledger
@@ -475,11 +583,13 @@
   // GST summary: output vs input tax by month and B2B outward supplies by party
   Book.prototype.gstSummary = function (from, to) {
     var self = this, months = {}, order = [], parties = {}, porder = [], isTax = {}, kind = {};
+    // A tax ledger must sit under Duties & Taxes AND be named like one (whole word gst/cgst/sgst/utgst/igst/cess,
+    // a trailing rate like 'CGST9%' is fine) so 'Purchase - Accessories' or 'Bank Processing Charges' never count.
     this.ledgerNames.forEach(function (n) {
       var led = self.ledgers[n];
-      if (led.chain.indexOf('Duties & Taxes') === -1 && !/gst|cess/i.test(n)) return;
-      if (!/(cgst|sgst|utgst|igst|cess|gst)/i.test(n) || /payable|deposit|paid|refund|tds|tcs|interest|late/i.test(n)) return;
-      isTax[n] = true; kind[n] = /input|purch|itc/i.test(n) ? 'input' : 'output';
+      if (led.chain.indexOf('Duties & Taxes') === -1) return;
+      if (!/\b(?:c|s|ut|i)?gst(?![a-z])|\bcess(?![a-z])/i.test(n) || /payable|deposit|paid|refund|tds|tcs|interest|late/i.test(n)) return;
+      isTax[n] = true; kind[n] = /\binput\b|\bpurch|\bitc\b/i.test(n) ? 'input' : 'output';
     });
     for (var i = 0; i < this.vouchers.length; i++) {
       var v = this.vouchers[i];
@@ -506,7 +616,8 @@
     return { months: ms, parties: porder.map(function (k) { return parties[k]; }).sort(function (a, b) { return b.taxable - a.taxable; }), taxLedgers: Object.keys(isTax).map(function (n) { return { name: n, kind: kind[n] }; }) };
   };
 
-  // Monthly cash flow across cash and bank ledgers
+  // Monthly cash flow across cash and bank ledgers. Each voucher contributes the net of its cash/bank
+  // side as one inflow or outflow; contra vouchers and transfers between cash/bank ledgers are excluded.
   Book.prototype.cashFlow = function (from, to) {
     var self = this, months = {}, order = [], isCash = {};
     this.ledgerNames.forEach(function (n) { var c = self.ledgers[n].chain; if (c.indexOf('Cash-in-Hand') !== -1 || c.indexOf('Bank Accounts') !== -1 || c.indexOf('Bank OD A/c') !== -1) isCash[n] = true; });
@@ -515,7 +626,11 @@
       if (!v.affects || v.date < from || v.date > to) continue;
       var mk = Math.floor(v.date / 100), m = months[mk];
       if (!m) { m = months[mk] = { month: mk, inflow: 0, outflow: 0, net: 0 }; order.push(mk); }
-      for (var k = 0; k < v.entries.length; k++) { var e = v.entries[k]; if (!isCash[e.ledger]) continue; if (e.amount < 0) m.inflow += -e.amount; else m.outflow += e.amount; }
+      if (v.base === 'Contra') continue;
+      var net = 0, hasOther = false;
+      for (var k = 0; k < v.entries.length; k++) { var e = v.entries[k]; if (isCash[e.ledger]) net += e.amount; else hasOther = true; }
+      if (!hasOther) continue;
+      if (net < -0.005) m.inflow += -net; else if (net > 0.005) m.outflow += net;
       m.net = m.inflow - m.outflow;
     }
     return order.map(function (k) { return months[k]; });
@@ -598,6 +713,21 @@
       return r;
     });
   };
+  // Opening and closing stock value for the period at weighted average cost
+  // (rate = (opening value + inward value) / (opening qty + inward qty) per item). null when no item carries values.
+  Book.prototype.stockValuation = function (from, to) {
+    var rows = this.stockSummary(from, to), opening = 0, closing = 0, hasValue = false;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i], ov = Math.abs(r.openingValue || 0), iv = r.inValue || 0, denom = r.opening + r.inward;
+      if (ov + iv > 0.005) hasValue = true;
+      if (!(denom > 0)) continue;
+      var rate = (ov + iv) / denom;
+      opening += r.opening * rate;
+      closing += r.closing * rate;
+    }
+    if (!hasValue) return null;
+    return { opening: Math.round(opening * 100) / 100, closing: Math.round(closing * 100) / 100, method: 'weighted average' };
+  };
   Book.prototype.stockMoves = function (name, from, to) {
     var it = this.stock[name], self = this, run = it.openingQty, rows = [];
     it.moves.forEach(function (m) {
@@ -613,6 +743,8 @@
 
   function fyOf(d) { var y = Math.floor(d / 10000), m = Math.floor(d / 100) % 100; return m >= 4 ? y : y - 1; }
   function fyRange(fy) { return { from: fy * 10000 + 401, to: (fy + 1) * 10000 + 331, label: 'FY ' + fy + '-' + String(fy + 1).slice(2) }; }
+  // yyyymm → yyyymmdd of the last day of that month
+  function monthEnd(yyyymm) { var y = Math.floor(yyyymm / 100), m = yyyymm % 100; return yyyymm * 100 + new Date(Date.UTC(y, m, 0)).getUTCDate(); }
   Book.prototype.periods = function () {
     var out = [];
     if (!this.minDate) return out;
@@ -620,5 +752,6 @@
     return out;
   };
 
-  root.TVModel = { Book: Book, mergeImport: mergeImport, emptyData: emptyData, NATURE: NATURE, fyOf: fyOf, fyRange: fyRange, voucherKey: voucherKey, NON_ACCOUNTING: NON_ACCOUNTING };
+  root.TVModel = { Book: Book, mergeImport: mergeImport, emptyData: emptyData, NATURE: NATURE, fyOf: fyOf, fyRange: fyRange, voucherKey: voucherKey, NON_ACCOUNTING: NON_ACCOUNTING,
+    compositeKey: compositeKey, voucherSort: voucherSort, resetForSnapshot: resetForSnapshot, migrate: migrate, monthEnd: monthEnd, splitNumber: splitNumber };
 })(typeof self !== 'undefined' ? self : globalThis);

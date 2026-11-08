@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://ifsc.razorpay.com; font-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Tally Viewer</title>
-  <meta name="description" content="Offline viewer for TallyPrime XML exports: dashboards, ledgers, day book and reports on your phone.">
+  <meta name="description" content="Offline TallyPrime companion: open Tally data folders, dashboards, ledgers, day book, GST and reports on your phone.">
   <meta name="theme-color" content="#07080B">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,20 +15,29 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/classic.css">
+  <script src="js/version.js" defer></script>
+  <script src="js/model.js" defer></script>
+  <script src="js/db.js" defer></script>
+  <script src="js/export.js" defer></script>
+  <script src="js/tallyparse.js" defer></script>
+  <script src="js/entry.js" defer></script>
+  <script src="js/app.js" defer></script>
+  <script src="js/entryui.js" defer></script>
+  <script src="js/features.js" defer></script>
+  <script src="js/tools.js" defer></script>
+  <script src="js/classic.js" defer></script>
 </head>
 <body>
+  <div id="live" class="sr-only" role="status" aria-live="polite"></div>
   <header class="topbar" id="top"></header>
-  <main id="view"><div class="empty">Loading…</div></main>
-  <nav class="nav" id="nav"></nav>
-  <script src="js/model.js"></script>
-  <script src="js/db.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/tallyparse.js"></script>
-  <script src="js/entry.js"></script>
-  <script src="js/app.js"></script>
-  <script src="js/entryui.js"></script>
-  <script src="js/features.js"></script>
-  <script src="js/tools.js"></script>
-  <script src="js/classic.js"></script>
+  <main id="view">
+    <div class="skeleton" style="height:150px;border-radius:22px;margin:12px 0" aria-hidden="true"></div>
+    <div class="skeleton" style="height:62px;border-radius:14px;margin-bottom:8px" aria-hidden="true"></div>
+    <div class="skeleton" style="height:62px;border-radius:14px;margin-bottom:8px" aria-hidden="true"></div>
+    <div class="skeleton" style="height:62px;border-radius:14px;margin-bottom:8px" aria-hidden="true"></div>
+    <div class="skeleton" style="height:62px;border-radius:14px;margin-bottom:8px" aria-hidden="true"></div>
+    <span class="sr-only">Loading Tally Viewer</span>
+  </main>
+  <nav class="nav" id="nav" aria-label="Main"></nav>
 </body>
 </html>

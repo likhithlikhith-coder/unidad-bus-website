@@ -11,6 +11,11 @@
   function stateCode(name) { if (!name) return ''; var n = String(name).trim().toLowerCase(); if (/^\d{2}$/.test(n)) return n; return STATE_CODES[n] || ''; }
   function stateFromGstin(gstin) { var m = /^(\d{2})[A-Z0-9]{13}$/i.exec(String(gstin || '').trim()); return m ? m[1] : ''; }
   function validGstin(g) { return /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(String(g || '').trim().toUpperCase()); }
+  function stateName(state, gstin) { return STATE_NAMES[stateCode(state) || stateFromGstin(gstin)] || ''; }
+  // Unit Quantity Codes accepted by the e-invoice portal (NIC UQC master)
+  var UQC = ['NOS', 'PCS', 'KGS', 'GMS', 'LTR', 'MTR', 'BOX', 'BAG', 'SET', 'PAC', 'DOZ', 'TON', 'QTL', 'SQM', 'SQF', 'CTN', 'BTL', 'CAN', 'ROL', 'UNT', 'OTH',
+    'BAL', 'BDL', 'BKL', 'BOU', 'BUN', 'CBM', 'CCM', 'CMS', 'DRM', 'GGK', 'GRS', 'GYD', 'KLR', 'KME', 'MLT', 'MTS', 'PRS', 'SQY', 'TBS', 'TGM', 'THD', 'TUB', 'UGS', 'YDS'];
+  function todayNum() { var d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
 
   /* ---- amount in words (Indian system) ---------------------------------- */
   var ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
@@ -51,24 +56,53 @@
     t.total = r2(raw + t.roundOff);
     return { items: items, totals: t };
   }
+  // Ledger lines for an invoice (negative = Dr). sign is -1 for a Credit Note (customer credited, sales and
+  // tax debited), +1 for an invoice or a seller's Debit Note.
+  function invoiceEntries(inv, sign) {
+    sign = sign < 0 ? -1 : 1;
+    var calc = computeInvoice(inv), t = calc.totals, e = [];
+    function amt(n) { return r2(n * sign) || 0; }
+    e.push({ ledger: inv.buyerLedger, amount: amt(-t.total) });
+    e.push({ ledger: inv.salesLedger, amount: amt(t.taxable) });
+    if (inv.interState) { if (t.igst) e.push({ ledger: inv.igstLedger, amount: amt(t.igst) }); }
+    else { if (t.cgst) e.push({ ledger: inv.cgstLedger, amount: amt(t.cgst) }); if (t.sgst) e.push({ ledger: inv.sgstLedger, amount: amt(t.sgst) }); }
+    if (t.roundOff && inv.roundOffLedger) e.push({ ledger: inv.roundOffLedger, amount: amt(t.roundOff) });
+    return e;
+  }
 
   /* ---- TallyPrime import XML ---------------------------------------------- */
   function x(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
   function fmtAmt(n) { return (Math.round(n * 100) / 100).toFixed(2); }
-  // vouchers: app-created voucher objects {date, type, number, party, narration, entries:[{ledger, amount}]} (negative = Dr)
+  // vouchers: app-created voucher objects {date, type, number, party, narration, entries:[{ledger, amount}], invoice?} (negative = Dr)
+  // When v.invoice exists the GST particulars (buyer GSTIN, place of supply, IRN…) go with the voucher and the
+  // party line gets a New Ref bill for the invoice number, so TallyPrime can file it and track it bill-wise.
   function tallyXml(vouchers, companyName) {
     var msgs = vouchers.map(function (v) {
-      var view = 'Accounting Voucher View';
+      var view = 'Accounting Voucher View', inv = v.invoice || null, buyer = inv ? (inv.buyer || {}) : null;
       var s = '<TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="' + x(v.type) + '" ACTION="Create" OBJVIEW="' + view + '">' +
         '<DATE>' + v.date + '</DATE><EFFECTIVEDATE>' + v.date + '</EFFECTIVEDATE><VOUCHERTYPENAME>' + x(v.type) + '</VOUCHERTYPENAME>' +
         (v.number ? '<VOUCHERNUMBER>' + x(v.number) + '</VOUCHERNUMBER>' : '') +
         (v.party ? '<PARTYLEDGERNAME>' + x(v.party) + '</PARTYLEDGERNAME>' : '') +
         (v.ref ? '<REFERENCE>' + x(v.ref) + '</REFERENCE>' : '') +
-        (v.narration ? '<NARRATION>' + x(v.narration) + '</NARRATION>' : '') +
-        '<PERSISTEDVIEW>' + view + '</PERSISTEDVIEW><ISINVOICE>No</ISINVOICE>';
+        (v.narration ? '<NARRATION>' + x(v.narration) + '</NARRATION>' : '');
+      if (inv) {
+        var gstin = String(buyer.gstin || '').trim().toUpperCase(), pos = stateName(buyer.pos || buyer.state, gstin), bst = stateName(buyer.state, gstin) || pos;
+        if (gstin) s += '<PARTYGSTIN>' + x(gstin) + '</PARTYGSTIN>';
+        if (pos) s += '<PLACEOFSUPPLY>' + x(pos) + '</PLACEOFSUPPLY>';
+        if (bst) s += '<STATENAME>' + x(bst) + '</STATENAME>';
+        s += '<BASICBUYERNAME>' + x(buyer.name || v.party) + '</BASICBUYERNAME>' +
+          '<GSTREGISTRATIONTYPE>' + (gstin ? 'Regular' : 'Unregistered/Consumer') + '</GSTREGISTRATIONTYPE><COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>';
+        if (inv.irn) s += '<IRN>' + x(inv.irn) + '</IRN>';
+        if (inv.ackNo) s += '<IRNACKNO>' + x(inv.ackNo) + '</IRNACKNO>';
+        if (inv.ackDate) s += '<IRNACKDATE>' + x(inv.ackDate) + '</IRNACKDATE>';
+      }
+      s += '<PERSISTEDVIEW>' + view + '</PERSISTEDVIEW><ISINVOICE>No</ISINVOICE>';
+      var partyDone = false;
       v.entries.forEach(function (e) {
         s += '<ALLLEDGERENTRIES.LIST><LEDGERNAME>' + x(e.ledger) + '</LEDGERNAME><ISDEEMEDPOSITIVE>' + (e.amount < 0 ? 'Yes' : 'No') + '</ISDEEMEDPOSITIVE><AMOUNT>' + fmtAmt(e.amount) + '</AMOUNT>';
-        if (e.bills && e.bills.length) e.bills.forEach(function (b) { s += '<BILLALLOCATIONS.LIST><NAME>' + x(b.name) + '</NAME><BILLTYPE>' + x(b.type || 'New Ref') + '</BILLTYPE><AMOUNT>' + fmtAmt(b.amount) + '</AMOUNT></BILLALLOCATIONS.LIST>'; });
+        var bills = e.bills && e.bills.length ? e.bills : null;
+        if (!bills && inv && !partyDone && v.party && e.ledger === v.party && v.number) { bills = [{ name: v.number, type: 'New Ref', amount: e.amount }]; partyDone = true; }
+        if (bills) bills.forEach(function (b) { s += '<BILLALLOCATIONS.LIST><NAME>' + x(b.name) + '</NAME><BILLTYPE>' + x(b.type || 'New Ref') + '</BILLTYPE><AMOUNT>' + fmtAmt(b.amount) + '</AMOUNT></BILLALLOCATIONS.LIST>'; });
         s += '</ALLLEDGERENTRIES.LIST>';
       });
       return s + '</VOUCHER></TALLYMESSAGE>';
@@ -96,6 +130,9 @@
       }),
       ValDtls: { AssVal: num(calc.totals.taxable), CgstVal: num(calc.totals.cgst), SgstVal: num(calc.totals.sgst), IgstVal: num(calc.totals.igst), CesVal: 0, StCesVal: 0, Discount: 0, OthChrg: 0, RndOffAmt: num(calc.totals.roundOff), TotInvVal: num(calc.totals.total) }
     };
+    // credit / debit notes reference the original invoice (Rule 53)
+    var refDate = +inv.refDate;
+    if ((doc.DocDtls.Typ === 'CRN' || doc.DocDtls.Typ === 'DBN') && inv.refNumber && refDate > 19000000) doc.RefDtls = { PrecDocDtls: [{ InvNo: cut(inv.refNumber, 16), InvDt: ddmmyyyy(refDate) }] };
     // drop undefined optional fields
     ['SellerDtls', 'BuyerDtls'].forEach(function (k) { Object.keys(doc[k]).forEach(function (f) { if (doc[k][f] === undefined || doc[k][f] === '') delete doc[k][f]; }); });
     return doc;
@@ -105,17 +142,30 @@
     var out = [], s = inv.seller || {}, b = inv.buyer || {};
     if (!validGstin(s.gstin)) out.push('Seller GSTIN missing or invalid (set it under More → Company GST details).');
     if (!validGstin(b.gstin)) out.push('Buyer GSTIN missing or invalid (e-invoice applies to B2B invoices).');
+    if (String(s.name || '').trim().length < 3) out.push('Seller legal name must be at least 3 characters.');
+    if (String(b.name || '').trim().length < 3) out.push('Buyer legal name must be at least 3 characters.');
     if (!(stateCode(s.state) || stateFromGstin(s.gstin))) out.push('Seller state not recognised.');
     if (!(stateCode(b.state) || stateFromGstin(b.gstin))) out.push('Buyer state not recognised.');
-    if (!(parseInt(s.pin, 10) >= 100000)) out.push('Seller PIN code missing.');
-    if (!(parseInt(b.pin, 10) >= 100000)) out.push('Buyer PIN code missing.');
-    if (!inv.number) out.push('Invoice number missing.');
+    if (!(stateCode(b.pos || b.state) || stateFromGstin(b.gstin))) out.push('Place of supply missing.');
+    if (!/^\d{6}$/.test(String(s.pin == null ? '' : s.pin).trim())) out.push('Seller PIN code must be 6 digits.');
+    if (!/^\d{6}$/.test(String(b.pin == null ? '' : b.pin).trim())) out.push('Buyer PIN code must be 6 digits.');
+    var no = String(inv.number == null ? '' : inv.number).trim();
+    if (!no) out.push('Invoice number missing.');
+    else if (!/^[A-Za-z0-9\/-]{1,16}$/.test(no) || /^[0\/-]/.test(no)) out.push('Document number must be 1 to 16 letters, digits, / or -, and must not start with 0, / or -.');
+    if (!(inv.date > 0)) out.push('Invoice date missing.');
+    else if (inv.date > todayNum()) out.push('Invoice date cannot be after today.');
     if (!(inv.items || []).length) out.push('No items.');
-    (inv.items || []).forEach(function (it, i) { if (!/^\d{4,8}$/.test(String(it.hsn || '').trim())) out.push('Item ' + (i + 1) + ': HSN/SAC must be 4 to 8 digits.'); if (!(+it.qty > 0)) out.push('Item ' + (i + 1) + ': quantity must be positive.'); });
+    (inv.items || []).forEach(function (it, i) {
+      var n = 'Item ' + (i + 1) + ': ';
+      if (!/^\d{6}$|^\d{8}$/.test(String(it.hsn || '').trim())) out.push(n + (it.isService ? 'SAC must be 6 digits.' : 'HSN must be 6 or 8 digits.'));
+      if (!(+it.qty > 0)) out.push(n + 'quantity must be positive.');
+      var unit = String(it.unit || (it.isService ? 'OTH' : 'NOS')).trim().toUpperCase();
+      if (UQC.indexOf(unit) === -1) out.push(n + 'unit "' + unit + '" is not a UQC code (NOS, PCS, KGS, LTR, MTR, OTH…).');
+    });
     return out;
   }
 
-  root.TVEntry = { STATE_CODES: STATE_CODES, STATE_NAMES: STATE_NAMES, stateCode: stateCode, stateFromGstin: stateFromGstin, validGstin: validGstin, amountInWords: amountInWords, computeInvoice: computeInvoice, tallyXml: tallyXml, eInvoiceJson: eInvoiceJson, eInvoiceChecks: eInvoiceChecks, ddmmyyyy: ddmmyyyy };
+  root.TVEntry = { STATE_CODES: STATE_CODES, STATE_NAMES: STATE_NAMES, UQC: UQC, stateCode: stateCode, stateFromGstin: stateFromGstin, stateName: stateName, validGstin: validGstin, amountInWords: amountInWords, computeInvoice: computeInvoice, invoiceEntries: invoiceEntries, tallyXml: tallyXml, eInvoiceJson: eInvoiceJson, eInvoiceChecks: eInvoiceChecks, ddmmyyyy: ddmmyyyy };
 })(typeof self !== 'undefined' ? self : globalThis);
 
 /* ---- GST tax invoice PDF (uses TVExport.PdfDoc) ---------------------------- */
@@ -124,19 +174,24 @@
   var E = root.TVEntry;
   function fmt(n) { return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0); }
   function fdate(d) { var y = Math.floor(d / 10000), m = Math.floor(d / 100) % 100, dd = d % 100; return dd + '-' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1] + '-' + y; }
-  // inv: output of einvoiceDoc(): { number, date, seller, buyer, items, interState, roundOff, irn, ackNo, ackDate, narration }
+  function fdateAny(d) { var n = +d; return n > 19000000 && n < 30000000 ? fdate(n) : String(d == null ? '' : d); }
+  // inv: output of einvoiceDoc(): { number, date, docType:'INV'|'CRN'|'DBN', refNumber, refDate, seller, buyer, items, interState, roundOff, irn, ackNo, ackDate, narration, reverseCharge }
   E.invoicePdf = function (inv, TVExport) {
     var calc = E.computeInvoice(inv), t = calc.totals, s = inv.seller || {}, b = inv.buyer || {};
+    var docType = inv.docType || 'INV', isNote = docType === 'CRN' || docType === 'DBN';
+    var heading = docType === 'CRN' ? 'CREDIT NOTE' : docType === 'DBN' ? 'DEBIT NOTE' : 'TAX INVOICE';
     var d = new TVExport.PdfDoc({ footer: 'Generated ' + new Date().toLocaleString() + ' - Tally Viewer' }); d.newPage();
     var M = d.M, W = d.W, y = d.y, inter = !!inv.interState;
-    d.text(W / 2, y - 12, 'TAX INVOICE', 13, true, 'c'); y -= 20;
+    d.text(W / 2, y - 12, heading, 13, true, 'c'); y -= 20;
     if (inv.irn) { d.text(W / 2, y - 7, 'e-Invoice', 8.5, false, 'c'); y -= 12; }
     // seller block
     d.text(M, y - 11, s.name || '', 12, true); y -= 15;
     [s.address1, s.address2, [s.city, s.state, s.pin].filter(Boolean).join(', '), s.gstin ? 'GSTIN: ' + s.gstin : '', [s.phone ? 'Ph: ' + s.phone : '', s.email].filter(Boolean).join('  ')].filter(Boolean).forEach(function (line) { d.text(M, y - 8, line, 8.5); y -= 11; });
     // invoice meta on the right
     var ry = d.y - 35, rx = W - M;
-    [['Invoice No', inv.number], ['Date', fdate(inv.date)], ['Place of supply', E.STATE_NAMES[E.stateCode(b.pos || b.state) || E.stateFromGstin(b.gstin)] || (b.pos || b.state || '')], ['Supply type', inter ? 'Inter-state (IGST)' : 'Intra-state (CGST+SGST)']].forEach(function (p) { d.text(rx - 200, ry, p[0], 8); d.text(rx, ry, String(p[1] || ''), 8.5, true, 'r'); ry -= 11; });
+    var meta = [[isNote ? 'Note No' : 'Invoice No', inv.number], ['Date', fdate(inv.date)], ['Place of supply', E.STATE_NAMES[E.stateCode(b.pos || b.state) || E.stateFromGstin(b.gstin)] || (b.pos || b.state || '')], ['Supply type', inter ? 'Inter-state (IGST)' : 'Intra-state (CGST+SGST)'], ['Reverse charge', inv.reverseCharge ? 'Yes' : 'No']];
+    if (isNote && (inv.refNumber || inv.refDate)) meta.push(['Against invoice no.', [inv.refNumber || '', inv.refDate ? 'dated ' + fdateAny(inv.refDate) : ''].filter(Boolean).join(' ')]);
+    meta.forEach(function (p) { d.text(rx - 200, ry, p[0], 8); d.text(rx, ry, String(p[1] || ''), 8.5, true, 'r'); ry -= 11; });
     y = Math.min(y, ry) - 8;
     d.line(M, y, W - M, y, 0.5, 0.6); y -= 4;
     // buyer block
@@ -155,14 +210,14 @@
       var base = [String(it.slNo), it.desc, it.hsn, fmt(it.qty).replace(/\.00$/, '') + ' ' + it.unit, fmt(it.rate), fmt(it.taxable), String(it.gstRate)];
       return inter ? base.concat([fmt(it.igst), fmt(it.total)]) : base.concat([fmt(it.cgst), fmt(it.sgst), fmt(it.total)]);
     });
-    d.table(cols, rows, [], { fontSize: 8, onNewPage: function (dd) { dd.text(M, dd.y - 8, (s.name || '') + ' - Invoice ' + inv.number, 8); dd.y -= 14; } });
+    d.table(cols, rows, [], { fontSize: 8, onNewPage: function (dd) { dd.text(M, dd.y - 8, (s.name || '') + ' - ' + (isNote ? 'Note ' : 'Invoice ') + inv.number, 8); dd.y -= 14; } });
     // totals block (right aligned)
     y = d.y - 10;
     var lines = [['Taxable value', t.taxable]].concat(inter ? [['IGST', t.igst]] : [['CGST', t.cgst], ['SGST', t.sgst]]);
     if (t.roundOff) lines.push(['Round off', t.roundOff]);
     lines.forEach(function (p) { d.text(W - M - 200, y, p[0], 8.5); d.text(W - M, y, fmt(p[1]), 8.5, false, 'r'); y -= 12; });
     d.line(W - M - 210, y + 8, W - M, y + 8, 0.5, 0.6);
-    d.text(W - M - 200, y - 2, 'Invoice total', 10, true); d.text(W - M, y - 2, 'Rs ' + fmt(t.total), 10, true, 'r'); y -= 16;
+    d.text(W - M - 200, y - 2, isNote ? 'Note total' : 'Invoice total', 10, true); d.text(W - M, y - 2, 'Rs ' + fmt(t.total), 10, true, 'r'); y -= 16;
     d.y = y; y -= d.para(M, y, 'Amount in words: ' + E.amountInWords(t.total), 8.5, true, W - 2 * M);
     if (inv.narration) { y -= 4; y -= d.para(M, y, 'Note: ' + inv.narration, 8, false, W - 2 * M); }
     y -= 30;
