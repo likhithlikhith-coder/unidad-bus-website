@@ -129,6 +129,18 @@ Screens:
   upcoming due dates, HSN chapter / SAC search, TDS rate table. "More" sits
   behind the ⚙ chip in the top bar.
 - **More** – switch, rename or delete companies; imported file log; theme.
+- **Classic Tally look** – the window icon in the top bar (or More → Look)
+  switches the whole app to a TallyPrime-style interface: a Gateway of Tally
+  home with Masters / Transactions / Utilities / Reports and red hotkey
+  letters, the K: Company · G: Go To · E: Export · F1: Help menu strip, a
+  report header band with company, title and period, and Tally's grey
+  function-key button bar (G Gateway, L Ledgers, D Day Book, R Reports,
+  T Tools, F2 Period, F3 Company, V Voucher, E Export, F12 Configure) along
+  the bottom on phones and down the right on tablets. Lists lose their
+  rounded cards and chevrons, ledgers under groups go italic, totals get the
+  double rule, focused fields turn Tally yellow. With a keyboard, the Gateway
+  hotkeys, F2/F3/F12, Alt+G (Go To) and Esc (back) work. "Modern UI" in the
+  menu strip switches back; the choice is remembered on the phone.
 
 ## Data folder format
 
@@ -204,7 +216,9 @@ tally-viewer/
   index.html            app shell
   manifest.webmanifest  PWA manifest
   sw.js                 service worker (offline cache)
-  css/app.css
+  css/app.css           modern design system
+  css/classic.css       classic Tally look (html[data-ui="classic"])
+  js/classic.js         Gateway of Tally, menu strip, button bar, Go To
   js/tallyparse.js      streaming Tally XML tokenizer + object extraction
   js/parser.worker.js   runs the parser off the main thread
   js/model.js           groups, balances, reports, import merge

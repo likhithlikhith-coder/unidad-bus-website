@@ -86,19 +86,23 @@
     window.scrollTo(0, 0);
     $view.classList.remove('in');
     fn(r);
+    if (window.TVClassic) TVClassic.after(r);
     void $view.offsetWidth; $view.classList.add('in');
     renderNav(r);
   }
 
   function topbar(opts) {
+    if (window.TVClassic && TVClassic.on()) { TVClassic.topbar(opts); return; }
     var h = '<div class="topbar-row">';
     if (opts.back) h += '<button class="back" data-act="back" aria-label="Back">‹</button>';
-    h += '<div class="title"><h1>' + esc(opts.title) + '</h1>' + (opts.sub ? '<div class="sub">' + esc(opts.sub) + '</div>' : '') + '</div>';
+    h += '<div class="title"' + (opts.titleAct ? ' data-act="' + opts.titleAct + '" role="button"' : '') + '><h1><span class="tt">' + esc(opts.title) + '</span>' + (opts.titleAct ? '<span class="caret">▾</span>' : '') + '</h1>' + (opts.sub ? '<div class="sub">' + esc(opts.sub) + '</div>' : '') + '</div>';
+    h += '<button class="chip ui-toggle" data-act="ui" aria-label="Classic Tally look" title="Classic Tally look">' + UI_ICON + '</button>';
     if (opts.period !== false && S.book) h += '<button class="chip" data-act="period">' + esc(S.period.label) + '</button>';
     if (opts.right) h += opts.right;
     h += '</div>' + (opts.extra || '');
     $top.innerHTML = h;
   }
+  var UI_ICON = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 13h6M7 16h4"/></svg>';
   var ICONS = {
     profit: '<svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
     sales: '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>',
@@ -123,6 +127,7 @@
   ];
   function renderNav(r) {
     var cur = r.name === 'ledger' ? 'ledgers' : (r.name === 'voucher' || r.name === 'entry' || r.name === 'invoice') ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : r.name === 'tool' ? 'tools' : r.name;
+    if (window.TVClassic && TVClassic.on()) { TVClassic.nav(r, cur); return; }
     $nav.innerHTML = NAV.map(function (n) { return '<button data-go="' + n[0] + '" class="' + (cur === n[0] ? 'on' : '') + '">' + n[2] + '<span>' + n[1] + '</span></button>'; }).join('');
   }
 
@@ -542,8 +547,9 @@
 
   /* ---- home --------------------------------------------------------------- */
   SCREENS.home = function () {
+    if (window.TVClassic && TVClassic.on()) { TVClassic.gateway(); return; }
     var b = S.book, p = S.period, s = b.summary(p.from, p.to);
-    topbar({ title: S.company.name, sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="newentry">＋</button><button class="chip" data-act="company">⇄</button><button class="chip" data-go="more">⚙</button>' });
+    topbar({ title: S.company.name, titleAct: 'company', sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="newentry">＋</button><button class="chip" data-go="more">⚙</button>' });
     var h = '';
     if (!b.vouchers.length) h += '<div class="notice">No vouchers imported for this company yet. Import a Daybook.xml to see activity.</div>';
     else if (Object.keys(b.data.groups).length === 0) h += '<div class="notice">Masters not imported: ledgers can\'t be grouped, so balance sheet and P&amp;L will be incomplete. Import Master.xml too.</div>';
@@ -1011,6 +1017,7 @@
       '<button class="row" data-go="sync"><div class="main"><div class="t">Sync from Tally over Wi-Fi</div><div class="s">Pull masters and vouchers straight from TallyPrime</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="import"><div class="main"><div class="t">Open Tally data folder / XML files</div><div class="s">Reads Manager.1800, TranMgr.1800, Company.1800 directly</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-go="help"><div class="main"><div class="t">How to export from TallyPrime</div></div><span class="chev">›</span></button>' +
+      '<button class="row" data-act="ui"><div class="main"><div class="t">Look</div><div class="s">' + (lsGet('tv.ui', 'modern') === 'classic' ? 'Classic Tally · tap to switch to the modern look' : 'Modern · tap to switch to the classic Tally look') + '</div></div><span class="chev">›</span></button>' +
       '<button class="row" data-act="theme"><div class="main"><div class="t">Theme</div><div class="s">' + esc(lsGet('tv.theme', 'dark')) + '</div></div><span class="chev">›</span></button></div>';
     h += '<p class="small faint" style="text-align:center">Tally Viewer · offline · all data stays in this browser\'s storage<span id="storage"></span></p>';
     $view.innerHTML = h;
@@ -1066,6 +1073,7 @@
     if (t === 'light') document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
     var meta = document.querySelector('meta[name=theme-color]');
     if (meta) meta.setAttribute('content', getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#07080B');
+    if (window.TVClassic) TVClassic.apply();
   }
 
   /* ---- global events ------------------------------------------------------ */
@@ -1097,7 +1105,7 @@
   window.addEventListener('hashchange', render);
 
   /* ---- bridge for entryui.js ---------------------------------------------- */
-  window.TVApp = { S: S, SCREENS: SCREENS, NEEDS_BOOK: NEEDS_BOOK, REPORTS: REPORTS, REPORT_FN: REPORT_FN, ICONS: ICONS, topbar: topbar, toast: toast, go: go, esc: esc, fmt: fmt, fmtDate: fmtDate, fmtDateLong: fmtDateLong, fmtMonth: fmtMonth, toISO: toISO, fromISO: fromISO, sheet: sheet, lsGet: lsGet, lsSet: lsSet, uid: uid, pluralize: pluralize, bal: bal, drcr: drcr, compact: compact, periodLabel: periodLabel, exportName: exportName, ledgerRow: ledgerRow, voucherRow: voucherRow, buildLedgerExport: buildLedgerExport, afterSave: afterSave, tallyRequest: tallyRequest, hasBridge: hasBridge, loadCompanies: loadCompanies, selectCompany: selectCompany, render: render, $view: function () { return $view; } };
+  window.TVApp = { S: S, SCREENS: SCREENS, NEEDS_BOOK: NEEDS_BOOK, REPORTS: REPORTS, REPORT_FN: REPORT_FN, ICONS: ICONS, topbar: topbar, toast: toast, go: go, esc: esc, fmt: fmt, fmtDate: fmtDate, fmtDateLong: fmtDateLong, fmtMonth: fmtMonth, toISO: toISO, fromISO: fromISO, sheet: sheet, lsGet: lsGet, lsSet: lsSet, uid: uid, pluralize: pluralize, bal: bal, drcr: drcr, compact: compact, periodLabel: periodLabel, exportName: exportName, ledgerRow: ledgerRow, voucherRow: voucherRow, buildLedgerExport: buildLedgerExport, afterSave: afterSave, tallyRequest: tallyRequest, hasBridge: hasBridge, loadCompanies: loadCompanies, selectCompany: selectCompany, render: render, applyTheme: applyTheme, $view: function () { return $view; } };
 
   /* ---- boot --------------------------------------------------------------- */
   function boot() {
