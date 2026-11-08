@@ -121,6 +121,13 @@ Screens:
   any app entry can be duplicated.
 - **Backup, restore, app lock** – a company (including entries made here) can
   be saved to a file and restored; a 4–6 digit PIN can be required on launch.
+- **Tools tab** (works without a company): GSTIN check (format, state,
+  embedded PAN, checksum), PAN check (format, holder type, name initial), IFSC
+  lookup (offline bank table, online branch details via the Razorpay IFSC
+  API), CIN decoder, Aadhaar checksum; GST, TDS, EMI, interest-between-dates,
+  margin/markup and amount-in-words calculators; compliance calendar with
+  upcoming due dates, HSN chapter / SAC search, TDS rate table. "More" sits
+  behind the ⚙ chip in the top bar.
 - **More** – switch, rename or delete companies; imported file log; theme.
 
 ## Data folder format

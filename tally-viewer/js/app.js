@@ -119,10 +119,10 @@
     ['ledgers', 'Ledgers', '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5"/></svg>'],
     ['vouchers', 'Day Book', '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6"/></svg>'],
     ['reports', 'Reports', '<svg viewBox="0 0 24 24"><path d="M4 20V10 M10 20V4 M16 20v-7 M22 20H2"/></svg>'],
-    ['more', 'More', '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>']
+    ['tools', 'Tools', '<svg viewBox="0 0 24 24"><path d="M14.5 5.5a3.5 3.5 0 0 0 4 4L21 7l-2-2-2.5 2.5"/><path d="M14 10 4 20l-1-1 10-10"/><path d="M8 5l3 3M5 8l3 3"/></svg>']
   ];
   function renderNav(r) {
-    var cur = r.name === 'ledger' ? 'ledgers' : (r.name === 'voucher' || r.name === 'entry' || r.name === 'invoice') ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : (r.name === 'companies' || r.name === 'import' || r.name === 'help' || r.name === 'sync' || r.name === 'pending' || r.name === 'gst') ? 'more' : r.name;
+    var cur = r.name === 'ledger' ? 'ledgers' : (r.name === 'voucher' || r.name === 'entry' || r.name === 'invoice') ? 'vouchers' : (r.name === 'report' || r.name === 'stock') ? 'reports' : r.name === 'tool' ? 'tools' : r.name;
     $nav.innerHTML = NAV.map(function (n) { return '<button data-go="' + n[0] + '" class="' + (cur === n[0] ? 'on' : '') + '">' + n[2] + '<span>' + n[1] + '</span></button>'; }).join('');
   }
 
@@ -145,6 +145,7 @@
     h += '<div class="btn-row"><button class="btn primary block" data-go="import">📁 Open Tally data folder / files</button></div>';
     h += '<div class="btn-row"><button class="btn block" data-go="sync">⟳ Sync from Tally over Wi-Fi</button></div>';
     h += '<div class="btn-row"><button class="btn block" data-go="help">Setup guide</button></div>';
+    h += '<p class="small muted" style="text-align:center;margin-top:14px">The <a href="#/tools">Tools</a> tab (GSTIN, PAN, IFSC checks, GST/TDS/EMI calculators, compliance calendar) works without any company loaded.</p>';
     $view.innerHTML = h;
   };
 
@@ -542,7 +543,7 @@
   /* ---- home --------------------------------------------------------------- */
   SCREENS.home = function () {
     var b = S.book, p = S.period, s = b.summary(p.from, p.to);
-    topbar({ title: S.company.name, sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="newentry">＋</button><button class="chip" data-act="company">⇄</button>' });
+    topbar({ title: S.company.name, sub: fmtDate(p.from) + ' – ' + fmtDate(p.to), right: '<button class="chip" data-act="newentry">＋</button><button class="chip" data-act="company">⇄</button><button class="chip" data-go="more">⚙</button>' });
     var h = '';
     if (!b.vouchers.length) h += '<div class="notice">No vouchers imported for this company yet. Import a Daybook.xml to see activity.</div>';
     else if (Object.keys(b.data.groups).length === 0) h += '<div class="notice">Masters not imported: ledgers can\'t be grouped, so balance sheet and P&amp;L will be incomplete. Import Master.xml too.</div>';
@@ -717,7 +718,7 @@
   }
   SCREENS.ledgers = function (r) {
     var b = S.book, p = S.period, f = r.q.f || 'all', q = (r.q.q || '').toLowerCase(), showNil = r.q.nil === '1';
-    topbar({ title: 'Ledgers', sub: S.company.name, extra: '<div class="chips">' + LFILTERS.map(function (x) { return '<button class="chip ' + (f === x[0] ? 'on' : '') + '" data-filter="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' });
+    topbar({ title: 'Ledgers', sub: S.company.name, right: '<button class="chip" data-go="more">⚙</button>', extra: '<div class="chips">' + LFILTERS.map(function (x) { return '<button class="chip ' + (f === x[0] ? 'on' : '') + '" data-filter="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' });
     var rows = [], total = 0, hidden = 0, names = [];
     b.ledgerNames.forEach(function (n) {
       var led = b.ledgers[n];
@@ -783,7 +784,7 @@
   /* ---- vouchers ----------------------------------------------------------- */
   SCREENS.vouchers = function (r) {
     var b = S.book, p = S.period, q = r.q.q || '', type = r.q.type || '';
-    topbar({ title: 'Day Book', sub: S.company.name, right: '<button class="chip" data-act="newentry">＋ Entry</button>' });
+    topbar({ title: 'Day Book', sub: S.company.name, right: '<button class="chip" data-act="newentry">＋ Entry</button><button class="chip" data-go="more">⚙</button>' });
     var list = b.vouchersIn(p.from, p.to, { q: q, type: type });
     var types = Object.keys(b.typeCounts).sort();
     var h = '<div class="search"><input type="search" id="vsearch" placeholder="Search party, narration, number, ledger" value="' + esc(q) + '"></div>' +
@@ -862,7 +863,7 @@
     ['stock', 'Stock Summary', 'Item quantities in and out'], ['monthly', 'Monthly Summary', 'Sales, purchases, expenses by month'], ['register', 'Voucher Register', 'Counts and totals by voucher type']
   ];
   SCREENS.reports = function () {
-    topbar({ title: 'Reports', sub: S.company.name });
+    topbar({ title: 'Reports', sub: S.company.name, right: '<button class="chip" data-go="more">⚙</button>' });
     $view.innerHTML = TVF.reportSections();
   };
   SCREENS.report = function (r) {
