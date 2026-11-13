@@ -194,8 +194,9 @@
     s = String(s);
     var eq = s.lastIndexOf('=');
     if (eq !== -1) s = s.slice(eq + 1);
-    var neg = /\(-\)|^\s*-/.test(s) || /-\s*$/.test(s);
-    var m = s.replace(/[^0-9.]/g, '');
+    var neg = /\(-\)|^\s*-/.test(s) || /-\s*$/.test(s) || /\bDr\.?\s*$/i.test(s);
+    // currency symbols such as "Rs." carry a dot of their own: drop the word with its dot first
+    var m = s.replace(/[A-Za-z]+\.?/g, '').replace(/[^0-9.]/g, '');
     if (!m) return 0;
     var v = parseFloat(m);
     if (isNaN(v)) return 0;

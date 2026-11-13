@@ -63,3 +63,19 @@ test('xlsx export escapes markup and quotes in cells, sheet names and headers', 
   assert.ok(!all.includes('name="Ledgers <x>"'));
   assert.ok(!/<t[^>]*>[^<]*[\u0000-\u0008]/.test(sheet));
 });
+
+test('num reads amounts with a dotted currency symbol, forex notation and Dr/Cr markers', () => {
+  const num = globalThis.TallyParse.num;
+  assert.equal(num('-1,000.00'), -1000);
+  assert.equal(num('1000'), 1000);
+  assert.equal(num('0.50'), 0.5);
+  assert.equal(num('(-)500.00'), -500);
+  assert.equal(num('$ 100.00 @ 80.00/$ = -8000.00'), -8000);
+  assert.equal(num('-USD 1000.00 @ Rs. 82.50/USD = -Rs. 82500.00'), -82500);
+  assert.equal(num('-$1000.00 @ Rs.45.50/$ = -Rs.45500.00'), -45500);
+  assert.equal(num('Rs. 1,000.00'), 1000);
+  assert.equal(num('1,000.00 Dr'), -1000);
+  assert.equal(num('1,000.00 Cr'), 1000);
+  assert.equal(num(''), 0);
+  assert.equal(num(undefined), 0);
+});

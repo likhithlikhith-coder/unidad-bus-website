@@ -222,6 +222,7 @@
   function stateSelect(id, value) { var codes = Object.keys(TVEntry.STATE_NAMES).sort(); return '<select id="' + id + '"><option value="">State…</option>' + codes.map(function (c) { var nm = TVEntry.STATE_NAMES[c]; var selv = TVEntry.stateCode(value) === c; return '<option value="' + c + '"' + (selv ? ' selected' : '') + '>' + c + ' · ' + esc(nm) + '</option>'; }).join('') + '</select>'; }
   // Fill empty buyer fields from the chosen debtor ledger's master
   function applyBuyer(inv, n) {
+    if (inv.buyerLedger && inv.buyerLedger !== n) inv.buyer = blankInvoice().buyer; // a different party: drop the previous party's name / GSTIN / state
     inv.buyerLedger = n; var info = (S.book.ledgers[n] && S.book.ledgers[n].info) || {};
     if (!inv.buyer.name) inv.buyer.name = n;
     if (info.gstin && !inv.buyer.gstin) inv.buyer.gstin = String(info.gstin).toUpperCase();
@@ -278,7 +279,8 @@
       $('iv-number').oninput = function () { inv.number = this.value.trim(); stashInv(); };
       $('iv-date').onchange = function () { inv.date = A.fromISO(this.value) || inv.date; stashInv(); };
       $('iv-type').onchange = function () {
-        inv.type = this.value; var cn = isCreditNote(inv.type);
+        var was = inv.type; inv.type = this.value; var cn = isCreditNote(inv.type);
+        if (!editing && inv.number === String(S.book.nextNumber(was) || '')) { inv.number = String(S.book.nextNumber(inv.type) || ''); $('iv-number').value = inv.number; } // untouched auto number follows the new type's series
         $('iv-ref').hidden = !cn; $('iv-number-l').textContent = cn ? 'Note no' : 'Invoice no'; $('iv-number').placeholder = numberPlaceholder(inv.type); $('iv-save').textContent = cn ? 'Save credit note' : 'Save invoice';
         A.topbar({ title: title(), sub: S.company.name, back: true, period: false }); stashInv();
       };
@@ -415,7 +417,7 @@
       if (created + altered >= list.length && !errors) {
         return markPosted(list).then(function () { toast('Tally accepted ' + (created + altered) + ' voucher(s)'); A.render(); }, function (e) { toast('Tally accepted the vouchers but the status could not be saved: ' + e.message, 7000); });
       }
-      toast('Tally created ' + created + ', errors ' + errors + (lineErr ? ': ' + lineErr.slice(0, 160) : ''), 8000);
+      toast('Tally created ' + created + ', errors ' + errors + (lineErr ? ': ' + lineErr.slice(0, 160) : '') + (created + altered > 0 ? ' Some were accepted: check Tally before posting again, or those will be entered twice.' : ''), 12000);
     }).catch(function (e) { toast('Could not reach Tally: ' + e.message, 6000); });
   };
 

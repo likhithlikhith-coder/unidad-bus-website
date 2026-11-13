@@ -348,7 +348,7 @@
     });
   }
   var TALLY_FILES = ['manager.1800', 'tranmgr.1800', 'company.1800'];
-  function isTallyFile(name) { return /\.1800$/i.test(name) || /\.900$/i.test(name); }
+  function isTallyFile(name) { return /\.1800$/i.test(name); }
   // Minimal ZIP reader (stored + deflate via DecompressionStream) for a zipped company folder.
   // Returns { folderKey: { fileName: ArrayBuffer } } grouped by the directory inside the ZIP.
   function unzipTallyFiles(buf) {
@@ -435,11 +435,12 @@
   }
   // Tally data files chosen from the picker: group .1800 files by folder, unzip ZIPs, pass XML through.
   function queueTallyFiles(files) {
-    var groups = {}, xml = [], zips = [];
+    var groups = {}, xml = [], zips = [], bak = 0;
     Array.prototype.forEach.call(files, function (f) {
       if (/\.zip$/i.test(f.name)) zips.push(f);
+      else if (/\.900$/i.test(f.name)) bak++;   // TallyPrime backup / older data: the decoder cannot read it
       else if (isTallyFile(f.name)) { var dir = (f.webkitRelativePath || '').split('/').slice(0, -1).join('/'); (groups[dir] || (groups[dir] = [])).push(f); }
-      else xml.push(f);
+      else if (!f.webkitRelativePath || /\.xml$/i.test(f.name)) xml.push(f);   // a picked folder also holds .TSF / desktop.ini: not import files
     });
     if (xml.length) queueFiles(xml);
     Object.keys(groups).forEach(function (dir) {
@@ -458,7 +459,8 @@
         return byDir[dirs[0]];
       }); }, z.size);
     });
-    if (!xml.length && !Object.keys(groups).length && !zips.length) toast('Pick Manager.1800, TranMgr.1800 and Company.1800, or a ZIP of the folder');
+    if (bak) toast('Tally backup (.900) files cannot be read. Pick Manager.1800, TranMgr.1800 and Company.1800 from the company folder.', 6000);
+    else if (!xml.length && !Object.keys(groups).length && !zips.length) toast('Pick Manager.1800, TranMgr.1800 and Company.1800, or a ZIP of the folder');
   }
   function addFolderJob(label, getFolder, size) { addJob({ file: { name: label, size: size || 0 }, getFolder: getFolder }); }
   function discardCache(id) { try { if (window.TallyBridge && typeof window.TallyBridge.discard === 'function') window.TallyBridge.discard(id); } catch (e) { /* ignore */ } }
@@ -906,6 +908,7 @@
     inp.oninput = function () {
       clearTimeout(t); var v = inp.value;
       t = setTimeout(function () {
+        if (!document.contains(inp)) return;   // navigated away before the debounce fired: leave the new screen's hash alone
         q = v; if (S.route && S.route.q) S.route.q.q = q;
         history.replaceState(null, '', '#/ledgers?f=' + f + '&q=' + encodeURIComponent(q) + (showNil ? '&nil=1' : ''));
         compute();
@@ -914,7 +917,7 @@
         announce(pluralize(st.rows.length, 'ledger') + ' match');
       }, 200);
     };
-    $top.querySelectorAll('[data-filter]').forEach(function (c) { c.onclick = function () { go('#/ledgers?f=' + c.getAttribute('data-filter') + '&q=' + encodeURIComponent(q)); }; });
+    $top.querySelectorAll('[data-filter]').forEach(function (c) { c.onclick = function () { go('#/ledgers?f=' + c.getAttribute('data-filter') + '&q=' + encodeURIComponent(q) + (showNil ? '&nil=1' : '')); }; });
   };
   function ledgerRow(name, closing, sub) {
     var led = S.book ? S.book.ledgers[name] : null;
@@ -948,7 +951,7 @@
     var rows;
     if (classic) {
       // Tally's Ledger Vouchers: ascending, Debit/Credit columns, Opening Balance first, Current Total and Closing Balance last
-      var tDr = bl.opening < 0 ? -bl.opening : 0, tCr = bl.opening > 0 ? bl.opening : 0;
+      var tDr = 0, tCr = 0;   // Tally's Current Total is the period's movement only; the opening is its own row
       rows = st.rows.map(function (x) {
         var v = x.voucher, dr = x.amount < 0 ? -x.amount : 0, cr = x.amount > 0 ? x.amount : 0; tDr += dr; tCr += cr;
         var part = x.others.length === 1 ? x.others[0] : x.others.length ? 'As per details (' + x.others.length + ' ledgers)' : (v.party || v.type);
@@ -1006,6 +1009,7 @@
     inp.oninput = function () {
       clearTimeout(t); var val = inp.value;
       t = setTimeout(function () {
+        if (!document.contains(inp)) return;   // navigated away before the debounce fired: leave the new screen's hash alone
         q = val; if (S.route && S.route.q) S.route.q.q = q;
         history.replaceState(null, '', '#/vouchers?type=' + encodeURIComponent(type) + '&q=' + encodeURIComponent(q));
         compute();

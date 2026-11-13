@@ -159,7 +159,8 @@ Screens:
   written, and unposted entries absent from the backup are kept). The app lock
   is a keypad PIN (4–6 digits, stored as a PBKDF2 hash) asked for on launch and
   again after the app has been in the background for a minute; wrong attempts
-  back off, a *Forgot PIN?* path offers a backup and then resets the lock, and
+  back off, a forgotten PIN can only be cleared by clearing the app's storage
+  (the lock cannot be reset or exported around from the lock screen), and
   on Android the screen is kept out of the recents thumbnail while a PIN is
   set.
 - **Tools tab** (works without a company): GSTIN check (format, state,
@@ -317,6 +318,35 @@ entity handling, spreadsheet escaping, and a decode of a real company folder
 whose trial balance must tie.
 
 ## Release notes
+
+### 1.9.1
+
+Final review pass: a file-by-file audit of 1.9.0 by six reviewers.
+
+- Imports: two identical vouchers without a Tally id in one file are both kept;
+  each posted app entry is matched to its Tally copy at most once; amounts
+  written with a dotted currency symbol, forex notation or a trailing Dr are
+  read correctly; Tally backup (.900) files are refused with a clear message;
+  a picked folder no longer queues .TSF and desktop.ini files; the data-folder
+  reader warns when the data format is not recognised.
+- GST Summary: a debit note raised on a customer counts on the output side.
+- GST invoice: picking a different buyer clears the previous party's GSTIN and
+  address; an untouched auto number follows the chosen voucher type's series.
+- Classic ledger: Current Total is the period's movement only, as in Tally.
+- Exports: Comparative P&L, Ratios, Cash Flow and GST Summary files carry the
+  same rows and totals as the screen; counts print as whole numbers in PDFs.
+- GST calculator: the rounded parts always add up to the total shown.
+- App lock: Forgot PIN no longer offers a reset or a backup from the lock
+  screen (that let anyone holding the phone past the lock); the way back in is
+  clearing the app's storage and loading the Tally data again.
+- Posting to Tally: a partial acceptance warns before a second post.
+- Keyboard (classic look): Up/Down stay with date fields, AltGr+A no longer
+  saves, punctuation keys no longer raise an error.
+- Android: a malformed share from another app cannot crash the launch; a very
+  large export reports a failure instead of closing the app; sharing a file
+  without a type still opens the chooser. versionCode 11.
+- Search: a pending search no longer rewrites the address of the next screen;
+  filter chips keep the "show nil balances" choice.
 
 ### 1.9.0
 

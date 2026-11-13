@@ -17,6 +17,7 @@ test('real folder decode: trial balance ties and the Book is consistent', { skip
   FILES.forEach(f => { files[f] = H.toArrayBuffer(fs.readFileSync(path.join(DIR, f))); });
   const r = TallyDB.decodeFolder(files);
   assert.equal(r.source, 'tally-folder');
+  assert.ok(!r.warnings.some(w => /not recognised/.test(w)), 'a readable folder is not flagged as an unknown format');
   assert.ok(r.company, 'company name decoded');
   assert.ok(r.ledgers.length > 0 && r.groups.length > 0 && r.vouchers.length > 0);
   r.vouchers.forEach(v => { assert.ok(v.id && v.date > 20000000 && v.entries.length, 'voucher ' + v.tallyId + ' has id, date and entries'); });
@@ -57,4 +58,24 @@ test('real folder decode: trial balance ties and the Book is consistent', { skip
   assert.equal(c2.vouchers.added, 0);
   assert.equal(c2.vouchers.updated, r.vouchers.length);
   assert.equal(d.vouchers.length, r.vouchers.length);
+});
+
+test('folder decode: an unreadable .1800 layout is reported instead of silently decoding to nothing', () => {
+  const junk = new Uint8Array(512 * 64);
+  for (let i = 0; i < junk.length; i++) junk[i] = (i * 7919 + 13) & 255;
+  [new ArrayBuffer(512 * 8), junk.buffer, new ArrayBuffer(10)].forEach(buf => {
+    const r = TallyDB.decodeFolder({ 'Manager.1800': buf, 'TranMgr.1800': buf });
+    assert.equal(r.ledgers.length, 0);
+    assert.equal(r.warnings.filter(w => /not recognised/.test(w)).length, 1, 'exactly one format warning');
+  });
+  // files missing altogether keep their own message and are not called an unknown format
+  const none = TallyDB.decodeFolder({});
+  assert.ok(!none.warnings.some(w => /not recognised/.test(w)));
+});
+
+test('folder decode: masters that read but a voucher file that yields nothing is flagged', { skip: available ? false : 'Tally data folder not present at ' + DIR }, () => {
+  const m = H.toArrayBuffer(fs.readFileSync(path.join(DIR, 'Manager.1800')));
+  const r = TallyDB.decodeFolder({ 'Manager.1800': m, 'TranMgr.1800': m });
+  assert.equal(r.vouchers.length, 0);
+  assert.equal(r.warnings.filter(w => /not recognised/.test(w)).length, 1);
 });

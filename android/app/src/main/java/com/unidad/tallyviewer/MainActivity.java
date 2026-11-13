@@ -209,7 +209,7 @@ public class MainActivity extends Activity {
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(START_URL);
         // A recreated activity already imported its launch intent; only a fresh one handles it.
-        if (savedInstanceState == null) handleIntent(getIntent());
+        if (savedInstanceState == null) try { handleIntent(getIntent()); } catch (RuntimeException ignored) { } // a malformed extra from another app must not crash the launch
     }
 
     /* ---- subresource policy -------------------------------------------------- */
@@ -277,7 +277,7 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        handleIntent(intent);
+        try { handleIntent(intent); } catch (RuntimeException ignored) { }
     }
 
     /** ACTION_VIEW / SEND / SEND_MULTIPLE with XML files: copy each into the cache and hand it to the page. */
@@ -610,7 +610,7 @@ public class MainActivity extends Activity {
                         String where = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ? saveToDownloads(safe, type, data) : null;
                         if (where == null) where = saveToAppDownloads(safe, data);
                         page("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",true," + js(where) + ")");
-                    } catch (Exception e) {
+                    } catch (Throwable e) { // incl. OutOfMemoryError on a huge payload: report it instead of killing the app
                         page("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",false," + js(e.getClass().getSimpleName() + ": " + e.getMessage()) + ")");
                     }
                 }
@@ -641,7 +641,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void run() {
                                 Intent send = new Intent(Intent.ACTION_SEND);
-                                send.setType(share != null ? mime : "text/plain");
+                                send.setType(share == null ? "text/plain" : (mime == null || mime.isEmpty()) ? "*/*" : mime);
                                 if (share != null) send.putExtra(Intent.EXTRA_STREAM, share);
                                 if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
                                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -662,7 +662,7 @@ public class MainActivity extends Activity {
                                 catch (Exception e) { try { send.setPackage(null); startActivity(Intent.createChooser(send, "Share " + fSafe)); } catch (Exception ignored) { } }
                             }
                         });
-                    } catch (Exception e) {
+                    } catch (Throwable e) { // incl. OutOfMemoryError on a huge payload: report it instead of killing the app
                         page("window.TallyBridgeSaved && window.TallyBridgeSaved(" + js(name) + ",false," + js(e.getClass().getSimpleName() + ": " + e.getMessage()) + ")");
                     }
                 }

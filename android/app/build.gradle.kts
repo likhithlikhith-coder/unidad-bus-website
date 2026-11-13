@@ -21,8 +21,8 @@ android {
         applicationId = "com.unidad.tallyviewer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.9.0"
+        versionCode = 11
+        versionName = "1.9.1"
     }
 
     // The web app lives in ../tally-viewer and is bundled as-is into the APK's assets.

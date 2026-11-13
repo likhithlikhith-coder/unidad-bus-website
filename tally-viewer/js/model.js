@@ -116,14 +116,22 @@
       voucherTypes: mergeMasters(data.voucherTypes, result.voucherTypes),
       vouchers: { added: 0, updated: 0, deleted: 0, matched: 0 }
     };
-    var idx = {}, appIdx = {};
+    var idx = {}, appIdx = {}, seenOld = {}, seenNew = {};
+    // Vouchers without an id are told apart by their position among identical ones, so two equal
+    // entries in one file stay two and a re-import of that file still updates them in place.
+    function keyOf(v, seen) {
+      var k = voucherKey(v);
+      if (v.id) return k;
+      var n = seen[k] = (seen[k] || 0) + 1;
+      return n > 1 ? k + '#' + n : k;
+    }
     data.vouchers.forEach(function (v, i) {
-      idx[voucherKey(v)] = i;
-      if (v.source === 'app' && v.posted) appIdx[compositeKey(v)] = i;
+      idx[keyOf(v, seenOld)] = i;
+      if (v.source === 'app' && v.posted) { var ak = compositeKey(v); (appIdx[ak] || (appIdx[ak] = [])).push(i); }
     });
     var removed = {};
     result.vouchers.forEach(function (v) {
-      var k = voucherKey(v);
+      var k = keyOf(v, seenNew);
       if (v.action === 'Delete') { if (idx[k] !== undefined) { removed[idx[k]] = true; counts.vouchers.deleted++; } return; }
       delete v.action;
       if (idx[k] !== undefined) {
@@ -134,12 +142,12 @@
       }
       if (v.source !== 'app') {
         // An entry made here, posted to Tally and now coming back with Tally's id: replace it in place.
-        var ck = compositeKey(v), ai = appIdx[ck];
+        var ck = compositeKey(v), ai = appIdx[ck] && appIdx[ck].length ? appIdx[ck].shift() : undefined;
         if (ai !== undefined) {
           var old = data.vouchers[ai];
           carryApp(v, old);
           data.vouchers[ai] = v;
-          delete idx[voucherKey(old)]; idx[k] = ai; delete appIdx[ck];
+          delete idx[voucherKey(old)]; idx[k] = ai;
           counts.vouchers.matched++;
           return;
         }
@@ -598,8 +606,16 @@
       if (!m) { m = months[mk] = { month: mk, outward: 0, outputTax: 0, inward: 0, inputTax: 0 }; order.push(mk); }
       var taxable = 0, tax = 0, isSale = v.base === 'Sales' || v.base === 'Credit Note', isPurchase = v.base === 'Purchase' || v.base === 'Debit Note';
       if (!isSale && !isPurchase) continue; // GST figures come from supply vouchers only; adjustment journals are not counted
-      for (var k = 0; k < v.entries.length; k++) {
-        var e = v.entries[k], led = self.ledgers[e.ledger];
+      // A debit note raised on a customer books sales and output tax although its base type is on the
+      // purchase side (and the reverse for a supplier's credit note): the ledgers decide when they are clear.
+      var hasS = false, hasP = false, k, e, led;
+      for (k = 0; k < v.entries.length; k++) {
+        led = self.ledgers[v.entries[k].ledger];
+        if (led && led.root === 'Sales Accounts') hasS = true; else if (led && led.root === 'Purchase Accounts') hasP = true;
+      }
+      if (hasS !== hasP) isSale = hasS;
+      for (k = 0; k < v.entries.length; k++) {
+        e = v.entries[k]; led = self.ledgers[e.ledger];
         if (!led) continue;
         if (isTax[e.ledger]) { if (isSale) m.outputTax += e.amount; else m.inputTax += -e.amount; tax += e.amount; }
         else if (led.root === 'Sales Accounts') { m.outward += e.amount; taxable += e.amount; }

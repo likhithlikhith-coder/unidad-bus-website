@@ -310,3 +310,44 @@ test('existing exports are kept', () => {
   assert.equal(v.idx, 0); assert.equal(v.base, 'Sales'); assert.equal(v.affects, true); assert.equal(v.total, 100);
   assert.ok(b.ledgerEntries['Acme Traders']); assert.ok(b.ledgerNames.length); assert.ok(b.cache); assert.ok(b.stock);
 });
+
+test('mergeImport keeps two identical vouchers that carry no id, and a re-import updates both in place', () => {
+  const mk = n => { const v = H.voucher(20250412, 'Payment', '', [['Rent', -500], ['Cash', 500]], { narration: n }); v.id = ''; return v; };
+  const res = () => ({ company: 'c', groups: [], ledgers: [], stockItems: [], voucherTypes: [], vouchers: [mk('first'), mk('second')] });
+  const d = H.data(); d.vouchers = [];
+  const c1 = TVModel.mergeImport(d, res());
+  assert.equal(c1.vouchers.added, 2);
+  assert.equal(d.vouchers.length, 2, 'two equal payments on one day are two payments');
+  const c2 = TVModel.mergeImport(d, res());
+  assert.equal(c2.vouchers.added, 0); assert.equal(c2.vouchers.updated, 2);
+  assert.equal(d.vouchers.length, 2);
+  assert.equal(new Book(d).ledgerBalance('Rent', 20250401, 20250430).closing, -1000);
+});
+
+test('mergeImport matches each posted app voucher at most once, and each of two equal app vouchers to its own twin', () => {
+  const lines = [['Rent', -500], ['Cash', 500]];
+  const d = H.data();
+  d.vouchers = [H.appVoucher(20250412, 'Payment', '7', lines, { posted: true, invoice: { n: 1 } }), H.appVoucher(20250412, 'Payment', '7', lines, { posted: true, invoice: { n: 2 } })];
+  const ids = d.vouchers.map(v => v.id);
+  const t = i => { const v = H.voucher(20250412, 'Payment', '7', lines); v.id = 'guid-' + i; return v; };
+  const c = TVModel.mergeImport(d, { company: 'c', groups: [], ledgers: [], stockItems: [], voucherTypes: [], vouchers: [t(1), t(2), t(3)] });
+  assert.equal(c.vouchers.matched, 2); assert.equal(c.vouchers.added, 1);
+  assert.equal(d.vouchers.length, 3);
+  assert.deepEqual(d.vouchers.filter(v => v.fromApp).map(v => v.appId).sort(), ids.slice().sort());
+  assert.deepEqual(d.vouchers.filter(v => v.fromApp).map(v => v.invoice.n).sort(), [1, 2]);
+  assert.equal(d.vouchers.filter(v => v.source === 'app').length, 0, 'no superseded app copy is left behind');
+  assert.equal(new Book(d).ledgerBalance('Rent', 20250401, 20250430).closing, -1500);
+});
+
+test('gstSummary puts a debit note raised on a customer on the output side, a purchase return on the input side', () => {
+  const g = vs => book(vs).gstSummary(20250401, 20250430);
+  const dn = g([H.voucher(20250412, 'Debit Note', 'DN1', [['Acme Traders', -118], ['Sales', 100], ['Output CGST 9%', 9], ['Output SGST 9%', 9]])]);
+  assert.deepEqual(dn.months, [{ month: 202504, outward: 100, outputTax: 18, inward: 0, inputTax: 0, net: 18 }]);
+  assert.deepEqual(dn.parties.map(p => [p.party, p.taxable, p.tax, p.count]), [['Acme Traders', 100, 18, 1]]);
+  const pr = g([H.voucher(20250412, 'Debit Note', 'DN2', [['Zeta Suppliers', -118], ['Purchases', 100], ['Input CGST', 9], ['Input SGST', 9]])]);
+  assert.deepEqual(pr.months, [{ month: 202504, outward: 0, outputTax: 0, inward: -100, inputTax: -18, net: 18 }]);
+  assert.equal(pr.parties.length, 0);
+  const cn = g([H.voucher(20250410, 'Sales', '1', [['Acme Traders', -1180], ['Sales', 1000], ['Output CGST 9%', 90], ['Output SGST 9%', 90]]),
+    H.voucher(20250412, 'Credit Note', 'CN1', [['Acme Traders', 236], ['Sales', -200], ['Output CGST 9%', -18], ['Output SGST 9%', -18]])]);
+  assert.deepEqual(cn.months, [{ month: 202504, outward: 800, outputTax: 144, inward: 0, inputTax: 0, net: 144 }]);
+});

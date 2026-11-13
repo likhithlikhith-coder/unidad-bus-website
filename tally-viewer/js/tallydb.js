@@ -150,6 +150,7 @@
 
   /* ---- decoding ----------------------------------------------------------- */
 
+  var FORMAT_WARNING = 'This TallyPrime data format was not recognised (the app reads Release 3+ .1800 files). Balances may be wrong; use an XML export instead.';
   function decodeFolder(files, progress) {
     // files: { 'Manager.1800': ArrayBuffer, 'TranMgr.1800': ArrayBuffer, 'Company.1800': ArrayBuffer }
     var out = { company: '', companies: [], groups: [], ledgers: [], stockItems: [], stockGroups: [], units: [], voucherTypes: [], vouchers: [], others: {}, warnings: [], source: 'tally-folder' };
@@ -182,11 +183,12 @@
     var groupById = {}, unitById = {}, sgById = {}, vtById = {}, ledById = {}, godownById = {};
     var ledgerNames = {};
     if (manager) {
-      var Mf = new PageFile(manager), total = Mf.n, done = 0, failures = 0;
+      var Mf = new PageFile(manager), total = Mf.n, done = 0, failures = 0, chains = 0;
       var raw = [];
       for (var pg = 1; pg <= Mf.n; pg++) {
         if (Mf.ptype[pg] !== 0x0b || !Mf.npages[pg]) continue;
         var r = Mf.parseChain(pg), es = r.entries;
+        chains++;
         if (!r.ok) failures++;
         var k = find(es, 3, 0x06); if (!k) continue;
         var id = Mf.objid[pg], name = nameOf(es);
@@ -261,6 +263,8 @@
         }
       });
       if (failures) out.warnings.push(failures + ' master records could not be fully decoded.');
+      // Sanity check: an unknown file layout decodes to nothing useful rather than failing loudly.
+      if (!out.ledgers.length || failures * 2 > chains) { out.warnings.push(FORMAT_WARNING); out.others.formatUnrecognised = true; }
     }
 
     /* vouchers */
@@ -282,9 +286,10 @@
           }
         }
       }
-      var empty = 0, nvch = 0;
+      var empty = 0, nvch = 0, vobj = 0;
       for (var vp = 1; vp <= Tf.n; vp++) {
         if (Tf.ptype[vp] !== 0x0b || !Tf.npages[vp]) continue;
+        vobj++;
         var oid = Tf.objid[vp], rr = recs[oid] || {};
         var hdr = rr[1] ? Tf.parseChain(rr[1]).entries : [];
         var post = null;
@@ -329,6 +334,7 @@
       }
       if (empty) out.warnings.push(empty + ' voucher records had no ledger entries (deleted or empty) and were skipped.');
       out.others.emptyVouchers = empty;
+      if (vobj && !nvch && !out.others.formatUnrecognised) { out.warnings.push(FORMAT_WARNING); out.others.formatUnrecognised = true; }
     }
     out.vouchers.sort(function (a, b) { return a.date - b.date || a.tallyId - b.tallyId; });
     return out;

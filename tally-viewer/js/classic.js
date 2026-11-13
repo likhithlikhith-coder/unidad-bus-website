@@ -321,7 +321,8 @@
     if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') {
       if (ev.altKey || ev.ctrlKey) return;
       // from a sheet's search box the arrows move into its results; everywhere else leave fields alone
-      if (typing && !(open && tag === 'input' && (k === 'ArrowDown' || k === 'ArrowUp'))) return;
+      // (date and number fields keep their own Up/Down stepping)
+      if (typing && !(open && tag === 'input' && /^(search|text)$/.test(ev.target.type) && (k === 'ArrowDown' || k === 'ArrowUp'))) return;
       ev.preventDefault();
       moveCursor(k === 'ArrowDown' ? 1 : -1, k === 'Home' ? 'home' : k === 'End' ? 'end' : '');
       return;
@@ -330,7 +331,7 @@
     if (k === 'Escape') { if (open) return; /* app.js closes the sheet */ if (!typing && S.route && S.route.name !== 'home') { ev.preventDefault(); if (history.length > 1) history.back(); else go('#/home'); } return; }
     var lk = k.length === 1 ? k.toLowerCase() : '';
     if (ev.altKey && /^Key[A-Z]$/.test(ev.code || '')) lk = ev.code.slice(3).toLowerCase();
-    if (ev.ctrlKey) { if (lk === 'a' && isEntryScreen() && tag !== 'textarea' && !open) { ev.preventDefault(); saveEntry(); } return; }
+    if (ev.ctrlKey) { if (lk === 'a' && !ev.altKey && isEntryScreen() && tag !== 'textarea' && !open) { ev.preventDefault(); saveEntry(); } return; }
     if (k === 'F1') { ev.preventDefault(); if (ev.altKey) { if (!open) toggleDetailed(); } else go('#/help'); return; }
     if (/^F([2-9]|1[0-2])$/.test(k)) {
       if (open) return;
@@ -338,7 +339,7 @@
       if (bt) { ev.preventDefault(); if (!bt.disabled) bt.click(); }
       return;
     }
-    if (!lk) return;
+    if (!/^[a-z0-9]$/.test(lk)) return; // hotkeys are letters and digits; a quote or backslash would be an invalid selector below
     if (ev.altKey) { var mi = document.querySelector('.cl-menu [data-menu="' + lk + '"]'); if (mi) { ev.preventDefault(); if (!mi.disabled) mi.click(); } return; }
     if (open) { if (!typing) { var so = open.querySelector('[data-key="' + lk + '"]'); if (so) { ev.preventDefault(); so.click(); } } return; }
     if (typing) return;
